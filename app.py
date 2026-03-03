@@ -324,59 +324,96 @@ st.markdown(f"""
     .status-inactive {{ background:#fee2e2; color:#991b1b; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:600; }}
     </style>
 """, unsafe_allow_html=True)
-def apply_custom_chart_style(fig):
-    # This is a placeholder; add your actual styling logic here
-    fig.update_layout(template="plotly_white" if st.session_state.theme_choice == "Light" else "plotly_dark")
-    return fig
+
 # --- DATA LOADING FUNCTIONS ---
 @st.cache_data(ttl=600)
 def load_pipeline_data():
-    """Load opportunities data from local CSV"""
-    data = {'opportunities': pd.DataFrame()}
-    opps_file = "ghl/applications_tab_2025-11-01_to_2026-02-26.csv"
-    if os.path.exists(opps_file):
-        df = pd.read_csv(opps_file)
-        if 'Created on (AEDT)' in df.columns:
-            df['Created Date'] = pd.to_datetime(df['Created on (AEDT)'], errors='coerce').dt.date
-        if 'Stage No' in df.columns:
-            df['Stage Percentage'] = df['Stage No'].apply(convert_stage_no_to_percentage)
-        data['opportunities'] = df
-        print(f"Loaded {len(df)} opportunities from file")
-    return data
+    """Fetches opportunities directly from GHL instead of applications_tab.csv"""
+    api_key = st.secrets["GHL_API_KEY"]
+    location_id = st.secrets.get("GHL_LOCATION_ID", "YOUR_ID") # Add this to secrets
+    
+    url = f"https://services.leadconnectorhq.com/opportunities/search?locationId={location_id}"
+    headers = {"Authorization": f"Bearer {api_key}", "Version": "2021-07-28"}
 
+    try:
+        resp = requests.get(url, headers=headers)
+        df = pd.DataFrame(resp.json().get('opportunities', []))
+        if not df.empty:
+            # Replicate your CSV processing logic
+            df['Created Date'] = pd.to_datetime(df['createdAt']).dt.date
+            if 'stageId' in df.columns: # GHL uses stageId internally
+                df['Stage Percentage'] = df['pipelineStageId'].apply(convert_stage_no_to_percentage) 
+        return {'opportunities': df}
+    except:
+        return {'opportunities': pd.DataFrame()}
 @st.cache_data(ttl=600)
 def load_contact_data():
-    """Load contacts data from local CSV (full dataset)"""
+    """Load contacts data by fetching from GHL API directly."""
     data = {'contacts': pd.DataFrame()}
+    
+    # 1. Get secrets
+    api_key = st.secrets["GHL_API_KEY"]
+    location_id = st.secrets.get("GHL_LOCATION_ID") # Get this from GHL Settings
+    
+    # 2. Attempt Real-Time Fetch
+    try:
+        url = f"https://services.leadconnectorhq.com/contacts/?locationId={location_id}&limit=100"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Version": "2021-07-28",
+            "Accept": "application/json"
+        }
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            raw_data = response.json().get('contacts', [])
+            df = pd.DataFrame(raw_data)
+            
+            # Formatting logic (Same as your CSV logic)
+            if not df.empty:
+                df.columns = df.columns.astype(str).str.strip()
+                # Ensure lowercase for your dashboard filters
+                for col in df.columns:
+                    if col.lower() in ['country', 'city', 'source']:
+                        df.rename(columns={col: col.lower()}, inplace=True)
+                
+                # Use GHL's native 'dateAdded' for your 'Created Date'
+                df['Created Date'] = pd.to_datetime(df['dateAdded']).dt.date
+                
+            return {'contacts': df}
+            
+    except Exception as e:
+        st.sidebar.error(f"API Fetch Failed: {e}")
+
+    # 3. Fallback to Local CSV (Only if you kept them in GitHub)
     contacts_file = "ghl/detailed_contacts_full.csv"
     if os.path.exists(contacts_file):
         df = pd.read_csv(contacts_file)
-        df.columns = df.columns.astype(str).str.strip()
-        # Defensive Mapping: Ensure these specific columns are lowercase for the dashboard logic
-        for col in df.columns:
-            if col.lower() in ['country', 'city', 'first_attribution', 'latest_attribution', 'source']:
-                df.rename(columns={col: col.lower()}, inplace=True)
-        
-        if 'Created (AEDT)' in df.columns:
-            df['Created Date'] = pd.to_datetime(df['Created (AEDT)'], errors='coerce').dt.date
-        elif 'contact_created' in df.columns:
-            df['Created Date'] = pd.to_datetime(df['contact_created'], errors='coerce').dt.date
-        data['contacts'] = df
-        print(f"Loaded {len(df)} contacts from full file")
-    return data
+        # ... (your existing cleaning logic here) ...
+        return {'contacts': df}
+    
+    return {'contacts': pd.DataFrame()}
 
 @st.cache_data(ttl=600)
-def load_consultant_data():
-    """Load consultant capacity data"""
-    data = {'consultants_today': pd.DataFrame(), 'consultants_weekly': pd.DataFrame()}
-    consult_today = "ghl/consultant_capacity_today.csv"
-    if os.path.exists(consult_today):
-        data['consultants_today'] = pd.read_csv(consult_today)
-    consult_weekly = "ghl/consultant_capacity_weekly.csv"
-    if os.path.exists(consult_weekly):
-        data['consultants_weekly'] = pd.read_csv(consult_weekly)
-    return data
+def load_consultant_data(contacts_df):
+    """Calculates capacity dynamically from the contacts/appointments dataframe"""
+    if contacts_df.empty:
+        return {'consultants_today': pd.DataFrame(), 'consultants_weekly': pd.DataFrame()}
 
+    # Logic: Group by the 'assignedTo' or 'Consultant' column in your contacts data
+    # This replaces the need to run generate_all_tables.py
+    today = datetime.now().date()
+    
+    # Filter for today's appointments within your contact data
+    df_today = contacts_df[contacts_df['Created Date'] == today]
+    today_stats = df_today.groupby('assignedTo').size().reset_index(name='Total Appointments')
+    today_stats['Empty Spaces'] = 14 - today_stats['Total Appointments']
+    
+    return {
+        'consultants_today': today_stats,
+        'consultants_weekly': pd.DataFrame() # Repeat similar logic for weekly
+    }
 # --- GSC FUNCTIONS ---
 @st.cache_data(ttl=600)
 def fetch_meta_aggregated(start, end):
