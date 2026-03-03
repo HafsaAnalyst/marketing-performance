@@ -40,8 +40,14 @@ try:
     GSC_SITE_URL = "https://themigration.com.au/"
     
     # Load Google Credentials from secrets
-    gsc_creds_info = json.loads(st.secrets["google"]["gsc_credentials"])
-    google_credentials = service_account.Credentials.from_service_account_info(gsc_creds_info)
+    gsc_json_str = st.secrets["google"]["gsc_credentials"]
+    try:
+        gsc_creds_info = json.loads(gsc_json_str)
+        google_credentials = service_account.Credentials.from_service_account_info(gsc_creds_info)
+    except json.JSONDecodeError as je:
+        st.error(f"❌ JSON Parsing Error in 'gsc_credentials' secret: {je}")
+        st.info("💡 Tip: Ensure you wrap your JSON in triple SINGLE quotes (''' ... ''') in your secrets settings to avoid character issues.")
+        st.stop()
     
     # Auth
     AUTH_USER = st.secrets["auth"]["username"]
