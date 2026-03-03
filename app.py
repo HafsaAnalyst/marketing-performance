@@ -95,7 +95,7 @@ if "theme_choice" not in st.session_state:
 def login_gate():
     if not st.session_state.authenticated:
         st.markdown("<div style='text-align: center; padding-top: 100px;'>", unsafe_allow_html=True)
-        st.title("🔐 Marketing Performance Login")
+        st.title("🔐 Marketing Intelligence Login")
         user = st.text_input("Username")
         pw = st.text_input("Password", type="password")
         if st.button("Login"):
@@ -326,7 +326,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 def apply_custom_chart_style(fig):
     # This is a placeholder; add your actual styling logic here
-    fig.update_layout(template="plotly_dark" if st.session_state.theme_choice == "Dark" else "plotly_white")
+    fig.update_layout(template="plotly_white" if st.session_state.theme_choice == "Light" else "plotly_dark")
     return fig
 # --- DATA LOADING FUNCTIONS ---
 @st.cache_data(ttl=600)
@@ -1462,4 +1462,3 @@ with tab6:
             st.dataframe(consultants_weekly, use_container_width=True)
 
 #streamlit run "c:\Users\Hafsa Saleh\IdeaProjects\Themigration\ghl integration\mktdashboard.py"
-
