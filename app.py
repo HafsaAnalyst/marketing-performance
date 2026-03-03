@@ -95,7 +95,7 @@ if "theme_choice" not in st.session_state:
 def login_gate():
     if not st.session_state.authenticated:
         st.markdown("<div style='text-align: center; padding-top: 100px;'>", unsafe_allow_html=True)
-        st.title("🔐 Marketing Intelligence Login")
+        st.title("🔐 Marketing Performance Login")
         user = st.text_input("Username")
         pw = st.text_input("Password", type="password")
         if st.button("Login"):
@@ -1462,3 +1462,4 @@ with tab6:
             st.dataframe(consultants_weekly, use_container_width=True)
 
 #streamlit run "c:\Users\Hafsa Saleh\IdeaProjects\Themigration\ghl integration\mktdashboard.py"
+
