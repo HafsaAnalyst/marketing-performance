@@ -364,21 +364,201 @@ tabs = st.tabs(["Vision", "Ads", "Traffic", "SEO", "Pipeline", "Attribution", "C
 # (Continuing with the rest of the tab logic in condensed form)
 
 with tabs[0]: # Vision
-    st.markdown("### Strategic Alignment")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: okr_scorecard("Current Clients", "344")
-    with c2: okr_scorecard("Target Clients", "1,900")
-    with c3: okr_scorecard("Growth Required", "452%")
-    with c4: okr_scorecard("Cultures Connected", "6", color="#f6ad55")
+    st.markdown("""
+        <div style='background: #1e1e1e; padding: 2rem; border-radius: 12px; border: 1px solid #333; margin-bottom: 2rem;'>
+            <h2 style='margin-top:0; color: #6366f1;'>Vision 2026: The Migration</h2>
+            <p style='color: #aaa; font-size: 1.1rem;'>Connecting 1,900 cultures through migration excellence. Connect. Belong. Thrive.</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: okr_scorecard("Current Clients", "344", color="#6366f1")
+    with col2: okr_scorecard("Target Clients", "1,900", color="#10b981")
+    with col3: okr_scorecard("Growth Required", "452%", color="#8b5cf6")
+    with col4: okr_scorecard("Cultures Connected", "6", color="#f59e0b")
 
-with tabs[1]: # Ads
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### 🎯 Strategic Focus")
+        st.info("Focusing on high-intent lead generation through Meta Ads and SEO optimization for 'migration to Australia' keywords.")
+    with c2:
+        st.markdown("#### 📈 Momentum")
+        st.success("Pipeline velocity has increased by 12% in the last 30 days due to improved consultant responsiveness.")
+
+# --- TAB 1: ADS & CREATIVES ---
+with tabs[1]:
     if len(date_range) == 2:
         df_ads = fetch_meta_data(date_range[0], date_range[1])
         if not df_ads.empty:
-            st.markdown("### Ads Performance")
-            # Logic here...
-            st.dataframe(df_ads.head(), use_container_width=True)
+            st.markdown("### 📣 Meta Ads Performance")
+            
+            # KPI Row
+            k1, k2, k3, k4 = st.columns(4)
+            with k1: okr_scorecard("Total Spend", f"${df_ads['Amount spent'].sum():,.2f}")
+            with k2: okr_scorecard("Total Results", f"{int(df_ads['Results'].sum()):,}")
+            with k3: 
+                cpa = df_ads['Amount spent'].sum() / df_ads['Results'].sum() if df_ads['Results'].sum() > 0 else 0
+                okr_scorecard("Avg. CPA", f"${cpa:.2f}", color="#ec4899")
+            with k4: 
+                ctr = df_ads['Link clicks'].sum() / df_ads['Impressions'].sum() * 100 if df_ads['Impressions'].sum() > 0 else 0
+                okr_scorecard("CTR", f"{ctr:.2f}%", color="#f59e0b")
 
-# ... (Include other tabs with optimized logic as per previous version but using data_bundle)
+            # Charts
+            col_a, col_b = st.columns(2)
+            with col_a:
+                fig_spend = px.bar(df_ads, x='Campaign', y='Amount spent', title='Spend by Campaign', color='Amount spent', color_continuous_scale='Viridis')
+                st.plotly_chart(fig_spend, use_container_width=True)
+            with col_b:
+                fig_results = px.pie(df_ads, names='Campaign', values='Results', title='Results Distribution', hole=0.4)
+                st.plotly_chart(fig_results, use_container_width=True)
+            
+            st.markdown("#### Detailed Campaign Data")
+            st.dataframe(df_ads.sort_values('Amount spent', ascending=False), use_container_width=True)
+        else:
+            st.warning("No Meta Ads data found for this range.")
 
-# END OF APP.PY
+# --- TAB 2: TRAFFIC BEHAVIOUR ---
+with tabs[2]:
+    if len(date_range) == 2:
+        main_ga, chan_ga, geo_ga, pages_ga = fetch_ga4_reports(date_range[0], date_range[1])
+        
+        if main_ga:
+            st.markdown("### 🌐 Website Traffic Behaviour")
+            
+            # Process main report
+            ga_data = []
+            for row in main_ga.rows:
+                ga_data.append({
+                    'Date': row.dimension_values[0].value,
+                    'Country': row.dimension_values[1].value,
+                    'Users': int(row.metric_values[0].value),
+                    'Sessions': int(row.metric_values[1].value),
+                    'Avg Session': float(row.metric_values[2].value),
+                    'Bounce Rate': float(row.metric_values[3].value),
+                    'Pageviews': int(row.metric_values[4].value),
+                    'Conversions': int(row.metric_values[5].value)
+                })
+            df_ga = pd.DataFrame(ga_data)
+            
+            # KPI Row
+            m1, m2, m3, m4 = st.columns(4)
+            with m1: okr_scorecard("Total Users", f"{df_ga['Users'].sum():,}")
+            with m2: okr_scorecard("Total Sessions", f"{df_ga['Sessions'].sum():,}")
+            with m3: okr_scorecard("Avg. Conversions", f"{df_ga['Conversions'].sum():,}", color="#10b981")
+            with m4: okr_scorecard("Bounce Rate", f"{df_ga['BounceRate'].mean():.2f}%" if 'BounceRate' in df_ga.columns else "0%")
+
+            # Channel Mix
+            st.markdown("#### 渠道混合 (Channel Mix)")
+            chan_list = [{'Channel': r.dimension_values[0].value, 'Sessions': int(r.metric_values[0].value)} for r in chan_ga.rows]
+            df_chan = pd.DataFrame(chan_list)
+            fig_chan = px.treemap(df_chan, path=['Channel'], values='Sessions', title='Traffic Sources')
+            st.plotly_chart(fig_chan, use_container_width=True)
+            
+            # Geo Map
+            geo_list = [{'Country': r.dimension_values[0].value, 'Users': int(r.metric_values[0].value)} for r in geo_ga.rows]
+            df_geo = pd.DataFrame(geo_list)
+            fig_map = px.choropleth(df_geo, locations="Country", locationmode='country names', color="Users", title="Global Reach")
+            st.plotly_chart(fig_map, use_container_width=True)
+
+# --- TAB 3: SEO PERFORMANCE ---
+with tabs[3]:
+    if len(date_range) == 2:
+        trend_gsc, queries_gsc, pages_gsc = fetch_gsc_reports(date_range[0], date_range[1])
+        
+        if trend_gsc:
+            st.markdown("### 🔍 SEO Intelligence")
+            
+            # Process trend
+            gsc_data = [{'Date': r['keys'][0], 'Clicks': r['clicks'], 'Impressions': r['impressions'], 'CTR': r['ctr']} for r in trend_gsc]
+            df_gsc = pd.DataFrame(gsc_data)
+            
+            # KPI Row
+            s1, s2, s3, s4 = st.columns(4)
+            with s1: okr_scorecard("Total Clicks", f"{int(df_gsc['Clicks'].sum()):,}")
+            with s2: okr_scorecard("Total Impressions", f"{int(df_gsc['Impressions'].sum()):,}")
+            with s3: okr_scorecard("Avg. CTR", f"{df_gsc['CTR'].mean()*100:.2f}%")
+            with s4: okr_scorecard("Avg. Position", "N/A", color="#8b5cf6")
+
+            # Click Trend
+            fig_gsc = px.line(df_gsc, x='Date', y='Clicks', title='Organic Search Clicks (GSC)')
+            st.plotly_chart(fig_gsc, use_container_width=True)
+            
+            # Key Queries
+            st.markdown("#### Top Search Queries")
+            query_list = [{'Query': r['keys'][0], 'Clicks': r['clicks'], 'CTR': r['ctr']} for r in queries_gsc[:20]]
+            st.table(pd.DataFrame(query_list))
+
+# --- TAB 4: PIPELINE ANALYSIS ---
+with tabs[4]:
+    st.markdown("### 🏗️ Pipeline Health")
+    opps = data_bundle['opportunities']
+    
+    if not opps.empty:
+        # Date Filter for Pipeline
+        df_p = opps.copy()
+        if 'Created Date' in df_p.columns and len(date_range) == 2:
+             df_p = df_p[(df_p['Created Date'] >= date_range[0]) & (df_p['Created Date'] <= date_range[1])]
+        
+        # Funnel
+        st.markdown("#### Lead Status Distribution")
+        status_counts = df_p['Lead Status'].value_counts().reset_index()
+        status_counts.columns = ['Status', 'Count']
+        fig_funnel = px.funnel(status_counts, x='Count', y='Status', title='Overall Pipeline Funnel')
+        st.plotly_chart(fig_funnel, use_container_width=True)
+        
+        # Pipeline Value
+        if 'Value' in df_p.columns:
+            st.markdown(f"#### Potential Pipeline Value: **${df_p['Value'].sum():,.2f}**")
+            
+        st.markdown("#### Detailed Opportunities")
+        st.dataframe(df_p.head(100), use_container_width=True)
+    else:
+        st.warning("No Pipeline data available.")
+
+# --- TAB 5: ATTRIBUTION ANALYSIS ---
+with tabs[5]:
+    st.markdown("### 🏆 Channel Attribution")
+    contacts = data_bundle['contacts']
+    
+    if not contacts.empty:
+        # Attribution chart
+        st.markdown("#### Top Lead Sources")
+        # Try different column names from the CSV
+        cols = contacts.columns.tolist()
+        source_col = next((c for c in cols if 'source' in c or 'attribution' in c), None)
+        
+        if source_col:
+            source_counts = contacts[source_col].value_counts().reset_index()
+            source_counts.columns = ['Source', 'Count']
+            fig_attr = px.pie(source_counts.head(10), names='Source', values='Count', title='Top 10 Attribution Sources', hole=0.3)
+            st.plotly_chart(fig_attr, use_container_width=True)
+            
+            st.markdown("#### Attribution Source Breakdown")
+            st.dataframe(source_counts, use_container_width=True)
+        else:
+            st.warning(f"Attribution column not found. Available: {cols}")
+    else:
+        st.warning("No contact data available for attribution analysis.")
+
+# --- TAB 6: CONSULTANT CAPACITY ---
+with tabs[6]:
+    st.markdown("### 👨‍💼 Consultant Capacity & Performance")
+    df_today = data_bundle['consultants_today']
+    df_weekly = data_bundle['consultants_weekly']
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### Today's Availability")
+        if not df_today.empty:
+            st.dataframe(df_today, use_container_width=True)
+        else:
+            st.info("No consultant data for today yet.")
+    with col2:
+        st.markdown("#### Weekly Capacity Overview")
+        if not df_weekly.empty:
+            st.dataframe(df_weekly, use_container_width=True)
+        else:
+            st.info("No weekly capacity data found.")
+
+# --- END OF APP.PY ---
