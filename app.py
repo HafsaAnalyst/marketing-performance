@@ -45,7 +45,13 @@ try:
     # If the user pasted it as a table [google.gsc_credentials] in TOML
     if isinstance(gsc_secret, (dict, st.runtime.secrets.AttrDict)):
         try:
-            google_credentials = service_account.Credentials.from_service_account_info(dict(gsc_secret))
+            creds_dict = dict(gsc_secret)
+            # AUTO-FIX: If the private_key has literal newlines, JSON/Google-Auth might complain.
+            # We ensure \n is used instead.
+            if 'private_key' in creds_dict:
+                creds_dict['private_key'] = creds_dict['private_key'].replace('\n', '\\n')
+            
+            google_credentials = service_account.Credentials.from_service_account_info(creds_dict)
         except Exception as e:
             st.error(f"❌ Error creating credentials from secret table: {e}")
             st.stop()
