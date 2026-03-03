@@ -57,30 +57,23 @@ try:
             st.stop()
     # If the user pasted it as a JSON string
     elif isinstance(gsc_secret, str):
+        # RESILIENCE: Clean up the string if it was pasted into triple double quotes
+        # TOML often turns the \n sequence into a real newline character, which JSON hates.
+        cleaned_json = gsc_secret
+        if '"private_key": "' in cleaned_json:
+            # We find the private_key value and ensure literal newlines are escaped
+            # This handles the case where users use """...""" instead of '''...'''
+            parts = cleaned_json.split('"private_key": "')
+            sub_parts = parts[1].split('"', 1)
+            fixed_key = sub_parts[0].replace('\n', '\\n').replace('\r', '')
+            cleaned_json = parts[0] + '"private_key": "' + fixed_key + '"' + sub_parts[1]
+
         try:
-            gsc_creds_info = json.loads(gsc_secret)
+            gsc_creds_info = json.loads(cleaned_json)
             google_credentials = service_account.Credentials.from_service_account_info(gsc_creds_info)
         except json.JSONDecodeError as je:
-            st.error(f"❌ JSON Parsing Error in 'gsc_credentials' secret: {je}")
-            st.markdown("""
-            ### 💡 How to fix:
-            The error **'Invalid control character'** usually means your JSON has a hidden line break. 
-            
-            **The easiest fix is to enter the credentials as a 'table' instead of a string:**
-            In your Streamlit Secrets, delete the `gsc_credentials = '''...'''` line and paste this instead:
-            
-            ```toml
-            [google.gsc_credentials]
-            type = "service_account"
-            project_id = "your-project-id"
-            private_key_id = "your-key-id"
-            private_key = "---BEGIN PRIVATE KEY---\\n...EVERYTHING...\\n---END PRIVATE KEY---\\n"
-            client_email = "..."
-            client_id = "..."
-            # ... and all other fields from your JSON file
-            ```
-            *Note: Make sure to keep `\\n` as literal backslash-n in the private_key.*
-            """)
+            st.error(f"❌ JSON Parsing Error: {je}")
+            st.code(cleaned_json[:200] + "...") # Show them what we're trying to parse
             st.stop()
     else:
         st.error("❌ 'gsc_credentials' must be a JSON string or a TOML table.")
