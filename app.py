@@ -46,10 +46,9 @@ try:
     if isinstance(gsc_secret, (dict, st.runtime.secrets.AttrDict)):
         try:
             creds_dict = dict(gsc_secret)
-            # AUTO-FIX: If the private_key has literal newlines, JSON/Google-Auth might complain.
-            # We ensure \n is used instead.
+            # Ensure private_key has REAL newlines, not the string "\n"
             if 'private_key' in creds_dict:
-                creds_dict['private_key'] = creds_dict['private_key'].replace('\n', '\\n')
+                creds_dict['private_key'] = creds_dict['private_key'].replace('\\n', '\n')
             
             google_credentials = service_account.Credentials.from_service_account_info(creds_dict)
         except Exception as e:
