@@ -39,14 +39,45 @@ try:
     PROPERTY_ID = st.secrets["google"]["property_id"]
     GSC_SITE_URL = "https://themigration.com.au/"
     
-    # Load Google Credentials from secrets
-    gsc_json_str = st.secrets["google"]["gsc_credentials"]
-    try:
-        gsc_creds_info = json.loads(gsc_json_str)
-        google_credentials = service_account.Credentials.from_service_account_info(gsc_creds_info)
-    except json.JSONDecodeError as je:
-        st.error(f"❌ JSON Parsing Error in 'gsc_credentials' secret: {je}")
-        st.info("💡 Tip: Ensure you wrap your JSON in triple SINGLE quotes (''' ... ''') in your secrets settings to avoid character issues.")
+    # Load Google Credentials from secrets (Robust version)
+    gsc_secret = st.secrets["google"]["gsc_credentials"]
+    
+    # If the user pasted it as a table [google.gsc_credentials] in TOML
+    if isinstance(gsc_secret, (dict, st.runtime.secrets.AttrDict)):
+        try:
+            google_credentials = service_account.Credentials.from_service_account_info(dict(gsc_secret))
+        except Exception as e:
+            st.error(f"❌ Error creating credentials from secret table: {e}")
+            st.stop()
+    # If the user pasted it as a JSON string
+    elif isinstance(gsc_secret, str):
+        try:
+            gsc_creds_info = json.loads(gsc_secret)
+            google_credentials = service_account.Credentials.from_service_account_info(gsc_creds_info)
+        except json.JSONDecodeError as je:
+            st.error(f"❌ JSON Parsing Error in 'gsc_credentials' secret: {je}")
+            st.markdown("""
+            ### 💡 How to fix:
+            The error **'Invalid control character'** usually means your JSON has a hidden line break. 
+            
+            **The easiest fix is to enter the credentials as a 'table' instead of a string:**
+            In your Streamlit Secrets, delete the `gsc_credentials = '''...'''` line and paste this instead:
+            
+            ```toml
+            [google.gsc_credentials]
+            type = "service_account"
+            project_id = "your-project-id"
+            private_key_id = "your-key-id"
+            private_key = "---BEGIN PRIVATE KEY---\\n...EVERYTHING...\\n---END PRIVATE KEY---\\n"
+            client_email = "..."
+            client_id = "..."
+            # ... and all other fields from your JSON file
+            ```
+            *Note: Make sure to keep `\\n` as literal backslash-n in the private_key.*
+            """)
+            st.stop()
+    else:
+        st.error("❌ 'gsc_credentials' must be a JSON string or a TOML table.")
         st.stop()
     
     # Auth
