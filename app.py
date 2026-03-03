@@ -86,8 +86,11 @@ except Exception as e:
     st.stop()
 
 # --- DASHBOARD SETUP ---
+# Always initialize session state keys defensively
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "theme_choice" not in st.session_state:
+    st.session_state.theme_choice = "Dark"
 
 def login_gate():
     if not st.session_state.authenticated:
@@ -105,8 +108,13 @@ def login_gate():
         st.stop()
 
 login_gate()
+
+# Ensure theme_choice exists even if session state was reset
+if "theme_choice" not in st.session_state:
+    st.session_state.theme_choice = "Dark"
+
 # --- UPDATED THEME VARIABLES (Complete) ---
-if st.session_state.theme_choice == "Dark":
+if st.session_state.get("theme_choice", "Dark") == "Dark":
     bg_color       = "#0f172a" 
     surface_color  = "#1e293b" 
     text_color     = "#f8fafc"
