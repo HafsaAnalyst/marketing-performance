@@ -111,7 +111,7 @@ login_gate()
 
 # Ensure theme_choice exists even if session state was reset
 if "theme_choice" not in st.session_state:
-    st.session_state.theme_choice = "Dark"
+    st.session_state["theme_choice"] = "Light"
 
 # --- UPDATED THEME VARIABLES (Complete) ---
 if st.session_state.get("theme_choice", "Dark") == "Dark":
@@ -324,7 +324,10 @@ st.markdown(f"""
     .status-inactive {{ background:#fee2e2; color:#991b1b; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:600; }}
     </style>
 """, unsafe_allow_html=True)
-
+def apply_custom_chart_style(fig):
+    # This is a placeholder; add your actual styling logic here
+    fig.update_layout(template="plotly_dark" if st.session_state.theme_choice == "Dark" else "plotly_white")
+    return fig
 # --- DATA LOADING FUNCTIONS ---
 @st.cache_data(ttl=600)
 def load_pipeline_data():
