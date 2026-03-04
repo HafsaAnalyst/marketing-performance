@@ -16,7 +16,10 @@ from google.oauth2 import service_account
 
 # ==================== CONFIGURATION ====================
 try:
-    PROPERTY_ID = st.secrets["google"]["property_id"]
+    if "google" in st.secrets and st.secrets["google"] is not None:
+        PROPERTY_ID = st.secrets["google"].get("property_id", "354763938")
+    else:
+        PROPERTY_ID = "354763938"
 except:
     PROPERTY_ID = "354763938"
 
@@ -27,12 +30,14 @@ def get_google_creds():
         'https://www.googleapis.com/auth/webmasters.readonly'
     ]
     try:
-        if "google" in st.secrets and "gsc_credentials" in st.secrets["google"]:
-            secret = st.secrets["google"]["gsc_credentials"]
-            if isinstance(secret, str):
-                return service_account.Credentials.from_service_account_info(json.loads(secret), scopes=scopes)
-            return service_account.Credentials.from_service_account_info(dict(secret), scopes=scopes)
-    except:
+        if "google" in st.secrets and st.secrets["google"] is not None:
+            if "gsc_credentials" in st.secrets["google"]:
+                secret = st.secrets["google"]["gsc_credentials"]
+                if isinstance(secret, str):
+                    return service_account.Credentials.from_service_account_info(json.loads(secret), scopes=scopes)
+                return service_account.Credentials.from_service_account_info(dict(secret), scopes=scopes)
+    except Exception as e:
+        print(f"Secrets Credential Error: {e}")
         pass
     
     if os.path.exists("service_account.json"):
