@@ -16,17 +16,21 @@ GSC_SITE_URL = "https://themigration.com.au/"
 
 def get_google_creds():
     """Helper to get credentials from st.secrets or local file"""
+    scopes = [
+        'https://www.googleapis.com/auth/analytics.readonly',
+        'https://www.googleapis.com/auth/webmasters.readonly'
+    ]
     try:
         if "google" in st.secrets and "gsc_credentials" in st.secrets["google"]:
             secret = st.secrets["google"]["gsc_credentials"]
             if isinstance(secret, str):
-                return service_account.Credentials.from_service_account_info(json.loads(secret))
-            return service_account.Credentials.from_service_account_info(dict(secret))
+                return service_account.Credentials.from_service_account_info(json.loads(secret), scopes=scopes)
+            return service_account.Credentials.from_service_account_info(dict(secret), scopes=scopes)
     except:
         pass
     
     if os.path.exists("service_account.json"):
-        return service_account.Credentials.from_service_account_file("service_account.json")
+        return service_account.Credentials.from_service_account_file("service_account.json", scopes=scopes)
     return None
 
 
@@ -46,7 +50,8 @@ class GSCAsyncClient:
                 raise Exception("Google credentials not found (checked st.secrets and service_account.json)")
             
             # Add required scope if not present
-            if 'https://www.googleapis.com/auth/webmasters.readonly' not in credentials.scopes:
+            scopes = getattr(credentials, 'scopes', []) or []
+            if 'https://www.googleapis.com/auth/webmasters.readonly' not in scopes:
                 credentials = credentials.with_scopes(['https://www.googleapis.com/auth/webmasters.readonly'])
                 
             self._service = build('searchconsole', 'v1', credentials=credentials)
