@@ -498,8 +498,19 @@ with tabs[2]:
         st.markdown("### **5. Page Performance Analysis**")
         if "topPages" in ga4:
             df_pages = pd.DataFrame(ga4["topPages"])
-            df_p_grp = df_pages.groupby('pageTitle')['screenPageViews'].sum().reset_index().sort_values('screenPageViews', ascending=False).head(20)
-            st.dataframe(df_p_grp, use_container_width=True, hide_index=True)
+            if not df_pages.empty and 'page' in df_pages.columns:
+                df_pages_sorted = df_pages.sort_values('sessions', ascending=False).head(20)
+                fig_pages_ga = px.bar(
+                    df_pages_sorted, x="sessions", y="page", orientation='h',
+                    title="Top Landing Pages by Sessions", color="sessions",
+                    color_continuous_scale="Blues"
+                )
+                st.plotly_chart(apply_chart_style(fig_pages_ga), use_container_width=True)
+                st.dataframe(df_pages_sorted[['page','sessions','users','conversions']].rename(columns={
+                    'page': 'Landing Page', 'sessions': 'Sessions', 'users': 'Users', 'conversions': 'Key Events'
+                }), use_container_width=True, hide_index=True)
+            else:
+                st.info("No page data available.")
     else:
         st.warning("⚠️ GA4 Sync limited: 403 Forbidden.")
         st.info("💡 **Resolution:** Add `ga4-monitor@ghldataset.iam.gserviceaccount.com` as a 'Viewer' in Google Analytics Admin -> Property Access Management.")
