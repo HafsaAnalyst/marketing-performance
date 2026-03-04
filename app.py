@@ -186,7 +186,7 @@ def load_all_intelligence(start_date, end_date):
     async def fetch_everything():
         # Fetching tasks
         tasks = [
-            ghl_client.fetch_all_data(),
+            ghl_client.fetch_all_data(start_str, end_str),
             fetch_meta_data(start_str, end_str),
             fetch_ga4_data(start_str, end_str),
             fetch_gsc_data(start_str, end_str)
@@ -264,7 +264,8 @@ STAGE_ORDER = ["New Lead", "Qualifier", "Pre Sales (1)", "Pre Sales (2)", "Appoi
 ghl = all_data["ghl"]
 opps = pd.DataFrame(ghl.get('opportunities', []))
 contacts = pd.DataFrame(ghl.get('contacts', []))
-consultant_raw = ghl.get('consultants', [])
+consultant_today = ghl.get('consultants_today', [])
+consultant_weekly = ghl.get('consultants_weekly', [])
 
 # Map GHL columns
 if not opps.empty:
@@ -274,6 +275,9 @@ if not opps.empty:
         'pipeline': 'Pipeline',
         'stage': 'Stage',
         'owner': 'Lead Owner',
+        'source': 'Lead Source',
+        'contact_name': 'Contact Name',
+        'opportunity_name': 'Opportunity Name',
         'created_date': 'created_date'
     }
     # Safe rename logic
@@ -430,99 +434,79 @@ with tabs[1]:
     else:
         st.info("No Meta Ads campaign data found.")
 
-# --- TAB 2: TRAFFIC BEHAVIOR ---
+# --- TAB 2: TRAFFIC BEHAVIOUR ---
 with tabs[2]:
     ga4 = all_data.get("ga4", {})
-    df_m = pd.DataFrame(ga4.get("daily", []))
-    df_chan = pd.DataFrame(ga4.get("channels", []))
-    df_geo = pd.DataFrame(ga4.get("countries", []))
-    df_pages = pd.DataFrame(ga4.get("topPages", []))
-    
-    if not df_m.empty:
-        # --- CONTROL BAR ---
-        all_ga4_countries = sorted(df_m['Country'].unique())
-        ctrl_ga1, ctrl_ga2 = st.columns([3, 1])
-        with ctrl_ga1:
-            selected_ga4_countries = st.multiselect("Filter by Country", all_ga4_countries, default=all_ga4_countries[:3] if len(all_ga4_countries) > 3 else all_ga4_countries, key="ga4_country_filt")
+    if ga4 and isinstance(ga4, dict) and "daily" in ga4:
+        df_daily = pd.DataFrame(ga4["daily"])
         
-        df_m_filt = df_m[df_m['Country'].isin(selected_ga4_countries)].copy() if selected_ga4_countries else df_m.copy()
-        df_m_filt['Date'] = pd.to_datetime(df_m_filt['Date'])
-        df_m_grp = df_m_filt.groupby('Date').sum().reset_index().sort_values('Date')
-
         # 1. Engagement Overview
         st.markdown("### **1. Engagement Overview**")
-        t_active = df_m_grp["Active Users"].sum()
-        t_sessions = df_m_grp["Sessions"].sum()
-        t_views = df_m_grp["Views"].sum()
-        t_events = df_m_grp["Key Events"].sum()
-        a_bounce = df_m_grp["Bounce Rate"].mean()
+        t_active = df_daily["Active Users"].sum()
+        t_sessions = df_daily["Sessions"].sum()
+        t_views = df_daily["Views"].sum()
+        t_events = df_daily["Key Events"].sum()
+        a_bounce = df_daily["Bounce Rate"].mean()
         
         k_cols = st.columns(5)
         with k_cols[0]: okr_scorecard("Active Users", f"{t_active:,}")
         with k_cols[1]: okr_scorecard("Sessions", f"{t_sessions:,}")
         with k_cols[2]: okr_scorecard("Views", f"{t_views:,}")
         with k_cols[3]: okr_scorecard("Key Events", f"{t_events:,}", color="#10b981")
-        with k_cols[4]: okr_scorecard("Bounce Rate", f"{a_bounce*100:.1f}%", color="#ef4444")
+        with k_cols[4]: okr_scorecard("Bounce Rate", f"{a_bounce:.1f}%", color="#ef4444")
 
         st.markdown("#### **User Engagement Trend**")
-        if len(df_m_grp) >= 7:
-            df_m_grp["Smooth Users"] = df_m_grp["Active Users"].rolling(window=7, min_periods=1).mean()
-            fig_t = px.area(df_m_grp, x="Date", y="Smooth Users", title="User Engagement (7-Day Avg)")
-            fig_t.update_traces(line=dict(width=4), fillcolor='rgba(45, 212, 191, 0.2)')
-        else:
-            fig_t = px.area(df_m_grp, x="Date", y="Active Users", title="Daily Active Users")
-        st.plotly_chart(apply_chart_style(fig_t), use_container_width=True)
+        df_daily['Date'] = pd.to_datetime(df_daily['Date'])
+        df_daily_grp = df_daily.groupby('Date').sum().reset_index().sort_values('Date')
+        fig_trend = px.area(df_daily_grp, x='Date', y=['Active Users', 'Sessions'], 
+                             title="Engagement Trend", color_discrete_sequence=[accent, "#8b5cfc"])
+        st.plotly_chart(apply_chart_style(fig_trend), use_container_width=True)
 
         st.divider()
-
-        # 2. Acquisition Channels
+        
+        # 2. User Acquisition: Channel Trends
         st.markdown("### **2. User Acquisition: Channel Trends**")
-        df_c_filt = df_chan[df_chan['country'].isin(selected_ga4_countries)] if selected_ga4_countries else df_chan
-        df_c_grp = df_c_filt.groupby('channel')['sessions'].sum().reset_index().sort_values('sessions', ascending=False)
-        if not df_c_grp.empty:
-            fig_c = px.bar(df_c_grp, x="channel", y="sessions", color="channel", title="Sessions by Channel Group")
-            st.plotly_chart(apply_chart_style(fig_c), use_container_width=True)
+        if "channels" in ga4:
+            df_chan = pd.DataFrame(ga4["channels"])
+            df_c_grp = df_chan.groupby('channel')['sessions'].sum().reset_index().sort_values('sessions', ascending=False)
+            fig_chan = px.bar(df_c_grp, x="sessions", y="channel", orientation='h', title="Sessions by Channel Group", color="sessions")
+            st.plotly_chart(apply_chart_style(fig_chan), use_container_width=True)
 
         st.divider()
 
         # 3. Traffic by Country
         st.markdown("### **3. Traffic by Country**")
-        df_g = df_geo.sort_values("users", ascending=False).head(10)
-        g1, g2 = st.columns([1, 2])
-        with g1: st.dataframe(df_g, use_container_width=True, hide_index=True)
-        with g2: 
-            fig_g = px.pie(df_g, values="users", names="country", hole=0.4, title="User Distribution")
-            st.plotly_chart(apply_chart_style(fig_g), use_container_width=True)
+        if "countries" in ga4:
+            df_geo = pd.DataFrame(ga4["countries"])
+            df_g = df_geo.sort_values("users", ascending=False).head(10)
+            fig_geo = px.pie(df_g, values="users", names="country", hole=0.4, title="User Distribution by Country")
+            st.plotly_chart(apply_chart_style(fig_geo), use_container_width=True)
 
         st.divider()
 
         # 4. Key Events Behaviour
         st.markdown("### **4. Key Events Behaviour**")
-        if len(df_m_grp) >= 7:
-            df_m_grp["Smooth Events"] = df_m_grp["Key Events"].rolling(window=7, min_periods=1).mean()
-            fig_key = px.area(df_m_grp, x="Date", y="Smooth Events", title="Key Events Trend (7-Day Avg)")
-            fig_key.update_traces(line=dict(width=4), fillcolor='rgba(16, 185, 129, 0.2)')
-        else:
-            fig_key = px.area(df_m_grp, x="Date", y="Key Events", title="Daily Key Events")
-        st.plotly_chart(apply_chart_style(fig_key), use_container_width=True)
+        if "events" in ga4:
+            df_events = pd.DataFrame(ga4["events"])
+            df_e_grp = df_events.groupby('event')['count'].sum().reset_index().sort_values('count', ascending=False).head(15)
+            fig_events = px.bar(df_e_grp, x="count", y="event", orientation='h', title="Key Events Breakdown", color="count")
+            st.plotly_chart(apply_chart_style(fig_events), use_container_width=True)
 
         st.divider()
 
-        # 5. Page Performance
+        # 5. Page Performance Analysis
         st.markdown("### **5. Page Performance Analysis**")
-        df_pages_filt = df_pages.sort_values('users', ascending=False).head(10)
-        st.dataframe(df_pages_filt, use_container_width=True, hide_index=True)
+        if "topPages" in ga4:
+            df_pages = pd.DataFrame(ga4["topPages"])
+            df_p_grp = df_pages.groupby('pageTitle')['screenPageViews'].sum().reset_index().sort_values('screenPageViews', ascending=False).head(20)
+            st.dataframe(df_p_grp, use_container_width=True, hide_index=True)
     else:
         st.warning("⚠️ GA4 Sync limited: 403 Forbidden.")
-        st.info("💡 **Resolution:** Add `antigravity-fetcher@ghldataset.iam.gserviceaccount.com` as a 'Viewer' in Google Analytics Admin -> Property Access Management.")
+        st.info("💡 **Resolution:** Add `ga4-monitor@ghldataset.iam.gserviceaccount.com` as a 'Viewer' in Google Analytics Admin -> Property Access Management.")
         st.info("No GA4 data found.")
 
 
 # --- TAB 3: SEO PERFORMANCE ---
-with tabs[3]:
-    gsc = all_data["gsc"]
-    gsc_summary = gsc.get("summary", {})
-    gsc_trend = pd.DataFrame(gsc.get("trend", []))
 with tabs[3]:
     gsc = all_data.get("gsc", {})
     df_trend_raw = pd.DataFrame(gsc.get("trend", []))
@@ -530,18 +514,22 @@ with tabs[3]:
     df_pages_raw = pd.DataFrame(gsc.get("pages", []))
     
     if not df_trend_raw.empty:
-        # Pre-process keys: keys is [date, country] for trend, [query, country] for queries, [page, country] for pages
-        df_trend_raw['Date'] = pd.to_datetime(df_trend_raw['keys'].apply(lambda x: x[0]))
-        df_trend_raw['Country_Code'] = df_trend_raw['keys'].apply(lambda x: x[1])
-        df_query_raw['Query'] = df_query_raw['keys'].apply(lambda x: x[0])
-        df_query_raw['Country_Code'] = df_query_raw['keys'].apply(lambda x: x[1])
-        df_pages_raw['Page'] = df_pages_raw['keys'].apply(lambda x: x[0])
-        df_pages_raw['Country_Code'] = df_pages_raw['keys'].apply(lambda x: x[1])
+        # Pre-process keys: keys format is [date/query/page, country]
+        def safe_key(row, idx):
+            try: return row[idx]
+            except: return "unknown"
+        if 'keys' in df_trend_raw.columns:
+            df_trend_raw['Date'] = pd.to_datetime(df_trend_raw['keys'].apply(lambda x: safe_key(x, 0)))
+            df_trend_raw['Country_Code'] = df_trend_raw['keys'].apply(lambda x: safe_key(x, 1))
+        if not df_query_raw.empty and 'keys' in df_query_raw.columns:
+            df_query_raw['Query'] = df_query_raw['keys'].apply(lambda x: safe_key(x, 0))
+            df_query_raw['Country_Code'] = df_query_raw['keys'].apply(lambda x: safe_key(x, 1))
+        if not df_pages_raw.empty and 'keys' in df_pages_raw.columns:
+            df_pages_raw['Page'] = df_pages_raw['keys'].apply(lambda x: safe_key(x, 0))
+            df_pages_raw['Country_Code'] = df_pages_raw['keys'].apply(lambda x: safe_key(x, 1))
 
-        all_gsc_countries = sorted(df_trend_raw['Country_Code'].unique())
-        ctrl_gs1, ctrl_gs2 = st.columns([3, 1])
-        with ctrl_gs1:
-            selected_gsc_countries = st.multiselect("Filter by Country", all_gsc_countries, default=all_gsc_countries[:5] if len(all_gsc_countries) > 5 else all_gsc_countries, key="gsc_country_filt")
+        all_gsc_countries = sorted(df_trend_raw['Country_Code'].unique()) if 'Country_Code' in df_trend_raw.columns else []
+        selected_gsc_countries = st.multiselect("Filter by Country", all_gsc_countries, default=all_gsc_countries[:5] if len(all_gsc_countries) > 5 else all_gsc_countries, key="gsc_country_filt")
         
         df_t_filt = df_trend_raw[df_trend_raw['Country_Code'].isin(selected_gsc_countries)].copy() if selected_gsc_countries else df_trend_raw.copy()
         df_t_grp = df_t_filt.groupby('Date').agg({'clicks': 'sum', 'impressions': 'sum', 'ctr': 'mean', 'position': 'mean'}).reset_index().sort_values('Date')
@@ -574,47 +562,58 @@ with tabs[3]:
 
         st.divider()
 
-        # 3. Golden Opportunity Matrix
-        st.markdown("### **3. Golden Opportunity Matrix (Keyword Rankings)**")
-        df_q_filt = df_query_raw[df_query_raw['Country_Code'].isin(selected_gsc_countries)] if selected_gsc_countries else df_query_raw
-        df_q_grp = df_q_filt.groupby('Query').agg({'clicks':'sum', 'impressions':'sum', 'position':'mean'}).reset_index()
-        if not df_q_grp.empty:
-            df_q_grp['CTR'] = (df_q_grp['clicks'] / df_q_grp['impressions'] * 100).fillna(0)
-            fig_mat = px.scatter(df_q_grp, x="position", y="impressions", size="clicks", color="CTR",
-                                 hover_name="Query", log_y=True, title="Strategic Visibility vs. Rank")
-            # Guidelines
-            fig_mat.add_vline(x=10, line_dash="dash", line_color="rgba(255,255,255,0.2)")
-            fig_mat.add_annotation(x=5, y=df_q_grp['impressions'].max(), text="Maintain", showarrow=False)
-            fig_mat.add_annotation(x=15, y=df_q_grp['impressions'].max(), text="Scale Now", showarrow=False)
-            st.plotly_chart(apply_chart_style(fig_mat), use_container_width=True)
+        # 3. Golden Opportunity Matrix — Keyword Rankings
+        st.markdown("### **3. Golden Opportunity Matrix — Keyword Rankings**")
+        df_q_grp = pd.DataFrame()
+        if not df_query_raw.empty and 'Query' in df_query_raw.columns:
+            df_q_filt = df_query_raw[df_query_raw['Country_Code'].isin(selected_gsc_countries)] if selected_gsc_countries else df_query_raw
+            df_q_grp = df_q_filt.groupby('Query').agg({'clicks':'sum', 'impressions':'sum', 'position':'mean'}).reset_index()
+            if not df_q_grp.empty:
+                df_q_grp['CTR'] = (df_q_grp['clicks'] / df_q_grp['impressions'] * 100).fillna(0)
+                plot_df = df_q_grp[df_q_grp['clicks'] > 0].copy()
+                if not plot_df.empty:
+                    fig_mat = px.scatter(plot_df, x="position", y="impressions", size="clicks", color="CTR",
+                                         hover_name="Query", log_y=True, title="Strategic Visibility vs. Rank")
+                    fig_mat.add_vline(x=10, line_dash="dash", line_color="rgba(255,100,100,0.5)", annotation_text="Page 2")
+                    st.plotly_chart(apply_chart_style(fig_mat), use_container_width=True)
+        else:
+            st.info("No keyword query data available.")
 
         st.divider()
 
-        # 4 & 5. Content & Table
-        st.markdown("### **4. Content Performance**")
-        df_p_filt = df_pages_raw[df_pages_raw['Country_Code'].isin(selected_gsc_countries)] if selected_gsc_countries else df_pages_raw
-        df_p_grp = df_p_filt.groupby('Page').agg({'clicks':'sum', 'ctr':'mean'}).reset_index().sort_values('clicks', ascending=False).head(15)
-        fig_pages = px.bar(df_p_grp, x="clicks", y="Page", orientation='h', color="clicks", title="Top Pages by Clicks")
-        st.plotly_chart(apply_chart_style(fig_pages), use_container_width=True)
+        # 4. Content Performance — Clicks vs CTR
+        st.markdown("### **4. Content Performance — Clicks vs CTR**")
+        if not df_pages_raw.empty and 'Page' in df_pages_raw.columns:
+            df_p_filt = df_pages_raw[df_pages_raw['Country_Code'].isin(selected_gsc_countries)] if selected_gsc_countries else df_pages_raw
+            df_p_grp = df_p_filt.groupby('Page').agg({'clicks':'sum', 'ctr':'mean'}).reset_index().sort_values('clicks', ascending=False).head(15)
+            fig_pages_seo = px.bar(df_p_grp, x="clicks", y="Page", orientation='h', color="clicks", title="Top Pages by Clicks")
+            st.plotly_chart(apply_chart_style(fig_pages_seo), use_container_width=True)
+        else:
+            st.info("No page performance data available.")
 
+        st.divider()
+
+        # 5. Search Console Keyword Intelligence
         st.markdown("### **5. Search Console Keyword Intelligence**")
-        st.dataframe(df_q_grp.sort_values('clicks', ascending=False).head(50), use_container_width=True, hide_index=True)
+        if not df_q_grp.empty:
+            st.dataframe(df_q_grp.sort_values('clicks', ascending=False).head(100), use_container_width=True, hide_index=True)
+        else:
+            st.info("No keyword data to display.")
     else:
         st.warning("⚠️ SEO Sync limited: 403 User does not have sufficient permission.")
-        st.info("💡 **Resolution:** Add `antigravity-fetcher@ghldataset.iam.gserviceaccount.com` as a 'Viewer' in Google Search Console Settings for 'https://themigration.com.au/'.")
-        st.stop()
+        st.info("💡 **Resolution:** Add `antigravity-fetcher@ghldataset.iam.gserviceaccount.com` as a 'Viewer' in Google Search Console → Settings → Users & Permissions for 'https://themigration.com.au/'.")
 
 
 # --- TAB 4: PIPELINE ANALYSIS ---
 with tabs[4]:
     if not opps.empty:
-        # Scorecards
+        # 1. Pipeline KPI's
+        st.markdown("### **1. Pipeline KPI's**")
         total_val = opps['Opportunity Value'].sum() if 'Opportunity Value' in opps.columns else 0
         l2c_open_count = 0
         if 'Pipeline' in opps.columns and 'Status' in opps.columns:
             l2c_open_count = len(opps[(opps['Pipeline'] == 'L2C - Education') & (opps['Status'] == 'open')])
 
-        st.markdown("### **1. Pipeline KPI's**")
         k_cols = st.columns(3)
         with k_cols[0]: okr_scorecard("Total Opportunities", f"{len(opps):,}")
         with k_cols[1]: okr_scorecard("Pipeline Value", f"${total_val:,.0f}", color="#10b981")
@@ -622,21 +621,23 @@ with tabs[4]:
         
         st.divider()
         
-        # 2. Owner & Status Analysis
-        st.markdown("### **2. Owner & Status Analysis**")
+        # 2. Opportunity Analysis
+        st.markdown("### **2. Opportunity Analysis**")
         col_chart1, col_chart2 = st.columns(2)
+        p_colors = {'won': '#10b981', 'open': '#1e3a8a', 'lost': '#94a3b8', 'abandoned': '#64748b'}
+        
         with col_chart1:
             if 'Lead Owner' in opps.columns and 'Status' in opps.columns:
                 owner_status = opps.groupby(['Lead Owner', 'Status']).size().reset_index(name='Count')
-                p_colors = {'won': '#10b981', 'open': '#1e3a8a', 'lost': '#94a3b8', 'abandoned': '#64748b'}
                 fig_o = px.bar(owner_status, x='Count', y='Lead Owner', color='Status', orientation='h', 
-                               color_discrete_map=p_colors, barmode='stack', title="Pipeline by Owner")
+                               color_discrete_map=p_colors, barmode='stack', title="Opporturnity owners by status")
                 st.plotly_chart(apply_chart_style(fig_o), use_container_width=True)
         
         with col_chart2:
             if 'Status' in opps.columns:
                 status_counts = opps['Status'].value_counts().reset_index()
-                fig_s = px.pie(status_counts, values='count', names='Status', hole=0.6, title="Opportunity Status")
+                fig_s = px.pie(status_counts, values='count', names='Status', hole=0.6, title="Donut chart by status",
+                               color='Status', color_discrete_map=p_colors)
                 fig_s.add_annotation(text=f"<b>{len(opps):,}</b><br>Total", showarrow=False, font_size=20)
                 st.plotly_chart(apply_chart_style(fig_s), use_container_width=True)
         
@@ -648,8 +649,10 @@ with tabs[4]:
             l2c_df = opps[opps['Pipeline'] == 'L2C - Education'].copy()
             if not l2c_df.empty:
                 funnel_data = []
+                # Ensure STAGE_ORDER includes 'Won' for the funnel
+                S_ORDER = ["New Lead", "Qualifier", "Pre Sales (1)", "Pre Sales (2)", "Appointment Booked", "Won"]
                 if 'Stage' in l2c_df.columns:
-                    for stage in STAGE_ORDER[:-1]:
+                    for stage in S_ORDER[:-1]:
                         count = len(l2c_df[(l2c_df['Stage'] == stage) & (l2c_df['Status'] == 'open')])
                         funnel_data.append({'Stage': stage, 'Count': count})
                     funnel_data.append({'Stage': 'Won', 'Count': len(l2c_df[l2c_df['Status'] == 'won'])})
@@ -662,8 +665,8 @@ with tabs[4]:
 
         st.divider()
         
-        # 4. Opportunity Pipeline Performance
-        st.markdown("### **4. Lead Source Performance**")
+        # 4. Lead Source Analysis
+        st.markdown("### **4. Lead Source Analysis**")
         if 'Lead Source' in opps.columns:
             ls_grp = opps.groupby(['Lead Source', 'Status']).size().reset_index(name='Count')
             fig_ls = px.bar(ls_grp, x='Count', y='Lead Source', color='Status', orientation='h', 
@@ -671,8 +674,8 @@ with tabs[4]:
             st.plotly_chart(apply_chart_style(fig_ls), use_container_width=True)
 
         st.divider()
-        # 5. Opportunity Pipeline Performance
-        st.markdown("### **5. Opportunity Pipeline Performance**")
+        # 5. Opportunity Pipeline Bubble Chart
+        st.markdown("### **5. Opportunity Pipeline Bubble Chart**")
         if 'Lead Owner' in opps.columns and 'Opportunity Value' in opps.columns:
             bubble_df = opps.groupby('Lead Owner').agg({'Opportunity Value':'sum', 'created_date':'count'}).reset_index()
             bubble_df.columns = ['Lead Owner', 'Value', 'Count']
@@ -681,6 +684,7 @@ with tabs[4]:
     else:
         st.info("No opportunity data found.")
 
+# --- TAB 5: ATTRIBUTION ANALYSIS ---
 with tabs[5]:
     if not contacts.empty:
         st.markdown("### **1. Attribution Analysis (First vs. Latest)**")
@@ -700,58 +704,64 @@ with tabs[5]:
             
             st.markdown("#### **Attribution Detail Table**")
             st.dataframe(attr_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Attribution columns missing in contact data.")
 
+            st.markdown("#### **First Attribution Distribution**")
+            fig_pie = px.pie(attr_df, values='First', names='Source', hole=0.5, title="First Attribution Breakdown")
+            st.plotly_chart(apply_chart_style(fig_pie), use_container_width=True)
+        
         st.divider()
-        st.markdown("### **3. Lead Source Summary**")
+        st.markdown("### **2. Lead Source Summary**")
         if 'source' in contacts.columns:
-            st.dataframe(contacts['source'].value_counts().reset_index().head(20), use_container_width=True, hide_index=True)
+            ls_sum = contacts['source'].value_counts().reset_index().head(20)
+            st.dataframe(ls_sum, use_container_width=True, hide_index=True)
     else:
         st.info("No contact data found.")
 
+# --- TAB 6: CONSULTANT CAPACITY ---
 with tabs[6]:
     st.markdown("### **👨‍🏫 Consultant Pulse Leaderboard**")
-    if consultant_raw:
-        df_cons = pd.DataFrame(consultant_raw)
-        
-        # Pulse Grid
-        t_sum = int(df_cons['won_count'].sum()) if 'won_count' in df_cons.columns else 0
-        v_sum = float(df_cons['total_value'].sum()) if 'total_value' in df_cons.columns else 0
-        a_sum = int(df_cons['total_appointments'].sum()) if 'total_appointments' in df_cons.columns else 0
-        
-        st.markdown(f"""
-        <div style='text-align: center; margin-bottom: 2rem;'>
-            <div style='display: inline-block; padding: 20px 40px; background: rgba(16,185,129,0.1); border: 1px solid #10b981; border-radius: 12px; box-shadow: 0 0 20px rgba(16,185,129,0.2);'>
-                <span style='color: {secondary_text}; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em;'>Total Workforce Revenue Impact</span>
-                <h2 style='color: #10b981; margin: 10px 0 0; font-size: 2.5rem;'>${v_sum:,.0f}</h2>
-                <div style='color: {secondary_text}; font-size: 0.8rem; margin-top: 5px;'>from {a_sum} Appointments</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            if 'won_count' in df_cons.columns and 'consultant_name' in df_cons.columns:
-                fig_c = px.bar(df_cons.sort_values('won_count', ascending=True), x="won_count", y="consultant_name", orientation='h', 
-                               title="Deals Won per Consultant", color="won_count", color_continuous_scale="Blues")
-                st.plotly_chart(apply_chart_style(fig_c), use_container_width=True)
-            else:
-                st.info("Consultation 'won' data not currently sinking.")
-        
-        with c2:
-            if 'total_value' in df_cons.columns and 'consultant_name' in df_cons.columns:
-                fig_v = px.bar(df_cons.sort_values('total_value', ascending=True), x="total_value", y="consultant_name", orientation='h', 
-                               title="Revenue Impact per Consultant", color_discrete_sequence=["#8b5cfc"])
-                st.plotly_chart(apply_chart_style(fig_v), use_container_width=True)
-            else:
-                st.warning("⚠️ Missing revenue columns in data. Contact administrator.")
+    
+    # Scorecards
+    df_t = pd.DataFrame(consultant_today)
+    df_w = pd.DataFrame(consultant_weekly)
+    
+    t_appts = int(df_t['total_appointments'].sum()) if not df_t.empty else 0
+    w_appts = int(df_w['total_appointments'].sum()) if not df_w.empty else 0
+    t_rev = float(df_t['total_value'].sum()) if not df_t.empty else 0
+    
+    s1, s2, s3 = st.columns(3)
+    with s1: okr_scorecard("Today's Appointments", f"{t_appts}")
+    with s2: okr_scorecard("Weekly Appointments", f"{w_appts}", color="#10b981")
+    with s3: okr_scorecard("Today's Revenue Impact", f"${t_rev:,.0f}", color="#8b5cfc")
 
-        st.markdown("#### **Leaderboard Detail**")
-        if not df_cons.empty:
-            sort_col = 'total_value' if 'total_value' in df_cons.columns else df_cons.columns[0]
-            st.dataframe(df_cons.sort_values(sort_col, ascending=False), use_container_width=True, hide_index=True)
-    else:
-        st.info("No consultant metrics found for this period.")
+    st.divider()
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### **📅 Today's Capacity**")
+        if not df_t.empty:
+            fig_t = px.bar(df_t.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
+                           orientation='h', title="Appointments per Consultant (Today)", color="total_appointments", color_continuous_scale="Blues")
+            st.plotly_chart(apply_chart_style(fig_t), use_container_width=True)
+    
+    with c2:
+        st.markdown("#### **📆 Weekly Capacity**")
+        if not df_w.empty:
+            fig_w = px.bar(df_w.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
+                           orientation='h', title="Appointments per Consultant (Weekly)", color="total_appointments", color_continuous_scale="Greens")
+            st.plotly_chart(apply_chart_style(fig_w), use_container_width=True)
 
-# streamlit run app.py
+    st.divider()
+    
+    l1, l2 = st.columns(2)
+    with l1:
+        st.markdown("#### **Today's Leaderboard**")
+        if not df_t.empty:
+            cols = ['consultant_name', 'total_appointments', 'won_count', 'total_value']
+            st.dataframe(df_t[cols].sort_values('total_value', ascending=False), use_container_width=True, hide_index=True)
+    
+    with l2:
+        st.markdown("#### **Weekly Leaderboard**")
+        if not df_w.empty:
+            cols = ['consultant_name', 'total_appointments', 'won_count', 'total_value']
+            st.dataframe(df_w[cols].sort_values('total_value', ascending=False), use_container_width=True, hide_index=True)
