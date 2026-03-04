@@ -58,6 +58,25 @@ class GSCAsyncClient:
                 
             self._service = build('searchconsole', 'v1', credentials=credentials)
         return self._service
+
+    def _execute_request(self, request_obj):
+        """Helper to execute GSC requests and handle HttpErrors with details"""
+        try:
+            return request_obj.execute()
+        except Exception as e:
+            error_details = str(e)
+            # Check for HttpError from googleapiclient
+            if "HttpError" in str(type(e)):
+                if hasattr(e, 'content'):
+                    try:
+                        error_json = json.loads(e.content.decode('utf-8'))
+                        error_details = error_json.get('error', {}).get('message', error_details)
+                    except:
+                        pass
+                print(f"GSC API Error for {GSC_SITE_URL}: {error_details}")
+                # Re-raise as a standard Exception with the clear message
+                raise Exception(f"Google API Error: {error_details}")
+            raise e
     
     async def fetch_trend(self, start_date: str, end_date: str) -> List[Dict]:
         """Fetch daily trend data"""
@@ -70,10 +89,10 @@ class GSCAsyncClient:
             'rowLimit': 1000
         }
         
-        response = service.searchanalytics().query(
+        response = self._execute_request(service.searchanalytics().query(
             siteUrl=GSC_SITE_URL,
             body=request
-        ).execute()
+        ))
         
         rows = response.get('rows', [])
         data = []
@@ -99,10 +118,10 @@ class GSCAsyncClient:
             'rowLimit': limit
         }
         
-        response = service.searchanalytics().query(
+        response = self._execute_request(service.searchanalytics().query(
             siteUrl=GSC_SITE_URL,
             body=request
-        ).execute()
+        ))
         
         rows = response.get('rows', [])
         data = []
@@ -128,10 +147,10 @@ class GSCAsyncClient:
             'rowLimit': limit
         }
         
-        response = service.searchanalytics().query(
+        response = self._execute_request(service.searchanalytics().query(
             siteUrl=GSC_SITE_URL,
             body=request
-        ).execute()
+        ))
         
         rows = response.get('rows', [])
         data = []
@@ -157,10 +176,10 @@ class GSCAsyncClient:
             'rowLimit': limit
         }
         
-        response = service.searchanalytics().query(
+        response = self._execute_request(service.searchanalytics().query(
             siteUrl=GSC_SITE_URL,
             body=request
-        ).execute()
+        ))
         
         rows = response.get('rows', [])
         data = []
@@ -186,10 +205,10 @@ class GSCAsyncClient:
             'rowLimit': 10
         }
         
-        response = service.searchanalytics().query(
+        response = self._execute_request(service.searchanalytics().query(
             siteUrl=GSC_SITE_URL,
             body=request
-        ).execute()
+        ))
         
         rows = response.get('rows', [])
         data = []
