@@ -1,24 +1,18 @@
 """
-Async GA4 (Google Analytics 4) API Client - High-performance data fetching
+Async GSC (Google Search Console) API Client - High-performance data fetching
 """
 import os
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Any
-from google.analytics.data_v1beta import BetaAnalyticsDataClient
-from google.analytics.data_v1beta.types import (
-    DateRange, Dimension, Metric, RunReportRequest, FilterExpression
-)
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 import streamlit as st
 import json
-from google.oauth2 import service_account
 
 # ==================== CONFIGURATION ====================
-try:
-    PROPERTY_ID = st.secrets["google"]["property_id"]
-except:
-    PROPERTY_ID = "354763938"
+GSC_SITE_URL = "https://themigration.com.au/"
 
 def get_google_creds():
     """Helper to get credentials from st.secrets or local file"""
@@ -40,232 +34,226 @@ def get_google_creds():
     return None
 
 
-class GA4AsyncClient:
-    """Async GA4 API Client"""
+class GSCAsyncClient:
+    """Async GSC API Client"""
     
     def __init__(self):
-        self._client: Optional[BetaAnalyticsDataClient] = None
+        self._service = None
         self._data_cache: Optional[Dict] = None
         self._last_fetch: Optional[datetime] = None
     
-    def get_client(self) -> BetaAnalyticsDataClient:
-        """Get GA4 client with manual credentials injection"""
-        if self._client is None:
-            creds = get_google_creds()
-            if creds:
-                self._client = BetaAnalyticsDataClient(credentials=creds)
-            else:
-                self._client = BetaAnalyticsDataClient()
-        return self._client
+    def get_service(self):
+        """Get GSC service with manual credentials injection"""
+        if self._service is None:
+            credentials = get_google_creds()
+            if not credentials:
+                raise Exception("Google credentials not found (checked st.secrets and service_account.json)")
+            
+            # Add required scope if not present
+            scopes = getattr(credentials, 'scopes', []) or []
+            if 'https://www.googleapis.com/auth/webmasters.readonly' not in scopes:
+                credentials = credentials.with_scopes(['https://www.googleapis.com/auth/webmasters.readonly'])
+                
+            self._service = build('searchconsole', 'v1', credentials=credentials)
+        return self._service
     
-    async def fetch_traffic_summary(self, start_date: str, end_date: str) -> Dict:
-        """Fetch main traffic metrics"""
-        client = self.get_client()
+    async def fetch_trend(self, start_date: str, end_date: str) -> List[Dict]:
+        """Fetch daily trend data"""
+        service = self.get_service()
         
-        request = RunReportRequest(
-            property=f"properties/{PROPERTY_ID}",
-            metrics=[
-                Metric(name="activeUsers"),
-                Metric(name="sessions"),
-                Metric(name="averageSessionDuration"),
-                Metric(name="bounceRate"),
-                Metric(name="newUsers"),
-                Metric(name="totalUsers"),
-                Metric(name="screenPageViews"),
-                Metric(name="keyEvents")
-            ],
-            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-        )
-        
-        response = client.run_report(request)
-        
-        # Aggregate totals
-        total_active_users = 0
-        total_sessions = 0
-        total_duration = 0
-        total_bounce = 0
-        total_new_users = 0
-        total_users = 0
-        total_pageviews = 0
-        total_conversions = 0
-        row_count = 0
-        
-        for row in response.rows:
-            total_active_users += int(row.metric_values[0].value)
-            total_sessions += int(row.metric_values[1].value)
-            total_duration += float(row.metric_values[2].value)
-            total_bounce += float(row.metric_values[3].value)
-            total_new_users += int(row.metric_values[4].value)
-            total_users += int(row.metric_values[5].value)
-            total_pageviews += int(row.metric_values[6].value)
-            total_conversions += int(row.metric_values[7].value)
-            row_count += 1
-        
-        if row_count > 0:
-            return {
-                'activeUsers': total_active_users,
-                'sessions': total_sessions,
-                'avgSessionDuration': total_duration / row_count,
-                'bounceRate': (total_bounce / row_count) * 100,
-                'newUsers': total_new_users,
-                'totalUsers': total_users,
-                'pageViews': total_pageviews,
-                'conversions': total_conversions
-            }
-        
-        return {
-            'activeUsers': 0, 'sessions': 0, 'avgSessionDuration': 0,
-            'bounceRate': 0, 'newUsers': 0, 'totalUsers': 0,
-            'pageViews': 0, 'conversions': 0
+        request = {
+            'startDate': start_date,
+            'endDate': end_date,
+            'dimensions': ['date'],
+            'rowLimit': 1000
         }
-    
-    async def fetch_channels(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
-        """Fetch traffic by channel"""
-        client = self.get_client()
         
-        request = RunReportRequest(
-            property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="sessionDefaultChannelGroup")],
-            metrics=[Metric(name="sessions"), Metric(name="activeUsers"), Metric(name="keyEvents")],
-            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            limit=limit
-        )
+        response = service.searchanalytics().query(
+            siteUrl=GSC_SITE_URL,
+            body=request
+        ).execute()
         
-        response = client.run_report(request)
-        
+        rows = response.get('rows', [])
         data = []
-        for row in response.rows:
+        for row in rows:
             data.append({
-                'channel': row.dimension_values[0].value,
-                'sessions': int(row.metric_values[0].value),
-                'activeUsers': int(row.metric_values[1].value),
-                'conversions': int(row.metric_values[2].value)
+                'date': row['keys'][0],
+                'clicks': row['clicks'],
+                'impressions': row['impressions'],
+                'ctr': row['ctr'] * 100,  # Convert to percentage
+                'position': row['position']
             })
         
         return data
     
-    async def fetch_top_pages(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
-        """Fetch top landing pages"""
-        client = self.get_client()
+    async def fetch_queries(self, start_date: str, end_date: str, limit: int = 50) -> List[Dict]:
+        """Fetch top search queries"""
+        service = self.get_service()
         
-        request = RunReportRequest(
-            property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="landingPage")],
-            metrics=[
-                Metric(name="sessions"),
-                Metric(name="activeUsers"),
-                Metric(name="averageSessionDuration"),
-                Metric(name="keyEvents")
-            ],
-            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            limit=limit
-        )
+        request = {
+            'startDate': start_date,
+            'endDate': end_date,
+            'dimensions': ['query'],
+            'rowLimit': limit
+        }
         
-        response = client.run_report(request)
+        response = service.searchanalytics().query(
+            siteUrl=GSC_SITE_URL,
+            body=request
+        ).execute()
         
+        rows = response.get('rows', [])
         data = []
-        for row in response.rows:
+        for row in rows:
             data.append({
-                'page': row.dimension_values[0].value,
-                'sessions': int(row.metric_values[0].value),
-                'users': int(row.metric_values[1].value),
-                'avgDuration': float(row.metric_values[2].value),
-                'conversions': int(row.metric_values[3].value)
+                'query': row['keys'][0],
+                'clicks': row['clicks'],
+                'impressions': row['impressions'],
+                'ctr': row['ctr'] * 100,
+                'position': row['position']
             })
         
         return data
     
-    async def fetch_events(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
-        """Fetch top events"""
-        client = self.get_client()
+    async def fetch_pages(self, start_date: str, end_date: str, limit: int = 50) -> List[Dict]:
+        """Fetch top content pages"""
+        service = self.get_service()
         
-        request = RunReportRequest(
-            property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="eventName")],
-            metrics=[Metric(name="eventCount"), Metric(name="totalUsers")],
-            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            limit=limit
-        )
+        request = {
+            'startDate': start_date,
+            'endDate': end_date,
+            'dimensions': ['page'],
+            'rowLimit': limit
+        }
         
-        response = client.run_report(request)
+        response = service.searchanalytics().query(
+            siteUrl=GSC_SITE_URL,
+            body=request
+        ).execute()
         
+        rows = response.get('rows', [])
         data = []
-        for row in response.rows:
-            users = int(row.metric_values[1].value)
+        for row in rows:
             data.append({
-                'event': row.dimension_values[0].value,
-                'count': int(row.metric_values[0].value),
-                'users': users,
-                'countPerUser': round(int(row.metric_values[0].value) / users, 2) if users > 0 else 0
+                'page': row['keys'][0],
+                'clicks': row['clicks'],
+                'impressions': row['impressions'],
+                'ctr': row['ctr'] * 100,
+                'position': row['position']
             })
         
         return data
     
     async def fetch_countries(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
-        """Fetch users by country"""
-        client = self.get_client()
+        """Fetch top countries"""
+        service = self.get_service()
         
-        request = RunReportRequest(
-            property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="country")],
-            metrics=[Metric(name="activeUsers"), Metric(name="sessions")],
-            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            limit=limit
-        )
+        request = {
+            'startDate': start_date,
+            'endDate': end_date,
+            'dimensions': ['country'],
+            'rowLimit': limit
+        }
         
-        response = client.run_report(request)
+        response = service.searchanalytics().query(
+            siteUrl=GSC_SITE_URL,
+            body=request
+        ).execute()
         
+        rows = response.get('rows', [])
         data = []
-        for row in response.rows:
+        for row in rows:
             data.append({
-                'country': row.dimension_values[0].value,
-                'users': int(row.metric_values[0].value),
-                'sessions': int(row.metric_values[1].value)
+                'country': row['keys'][0],
+                'clicks': row['clicks'],
+                'impressions': row['impressions'],
+                'ctr': row['ctr'] * 100,
+                'position': row['position']
+            })
+        
+        return data
+    
+    async def fetch_devices(self, start_date: str, end_date: str) -> List[Dict]:
+        """Fetch by device"""
+        service = self.get_service()
+        
+        request = {
+            'startDate': start_date,
+            'endDate': end_date,
+            'dimensions': ['device'],
+            'rowLimit': 10
+        }
+        
+        response = service.searchanalytics().query(
+            siteUrl=GSC_SITE_URL,
+            body=request
+        ).execute()
+        
+        rows = response.get('rows', [])
+        data = []
+        for row in rows:
+            data.append({
+                'device': row['keys'][0],
+                'clicks': row['clicks'],
+                'impressions': row['impressions'],
+                'ctr': row['ctr'] * 100,
+                'position': row['position']
             })
         
         return data
     
     async def fetch_all_data(self, start_date: str, end_date: str) -> Dict[str, Any]:
-        """Fetch all GA4 data concurrently"""
-        # Run all requests concurrently
-        traffic, channels, pages, events, countries = await asyncio.gather(
-            self.fetch_traffic_summary(start_date, end_date),
-            self.fetch_channels(start_date, end_date),
-            self.fetch_top_pages(start_date, end_date),
-            self.fetch_events(start_date, end_date),
-            self.fetch_countries(start_date, end_date)
+        """Fetch all GSC data concurrently"""
+        trend, queries, pages, countries, devices = await asyncio.gather(
+            self.fetch_trend(start_date, end_date),
+            self.fetch_queries(start_date, end_date),
+            self.fetch_pages(start_date, end_date),
+            self.fetch_countries(start_date, end_date),
+            self.fetch_devices(start_date, end_date)
         )
         
+        # Calculate totals
+        total_clicks = sum(d['clicks'] for d in trend)
+        total_impressions = sum(d['impressions'] for d in trend)
+        avg_ctr = sum(d['ctr'] for d in trend) / len(trend) if trend else 0
+        avg_position = sum(d['position'] for d in trend) / len(trend) if trend else 0
+        
         return {
-            'traffic': traffic,
-            'channels': channels,
-            'topPages': pages,
-            'events': events,
+            'summary': {
+                'total_clicks': total_clicks,
+                'total_impressions': total_impressions,
+                'avg_ctr': avg_ctr,
+                'avg_position': avg_position,
+                'days': len(trend)
+            },
+            'trend': trend,
+            'queries': queries,
+            'pages': pages,
             'countries': countries,
+            'devices': devices,
             'fetched_at': datetime.now().isoformat()
         }
     
     def invalidate_cache(self):
-        """Clear cache (for future use)"""
+        """Clear cache"""
         self._data_cache = None
         self._last_fetch = None
 
 
 # Global instance
-ga4_client = GA4AsyncClient()
+gsc_client = GSCAsyncClient()
 
 
-async def fetch_ga4_data(start_date: str, end_date: str) -> Dict[str, Any]:
-    """Fetch all GA4 data"""
-    return await ga4_client.fetch_all_data(start_date, end_date)
+async def fetch_gsc_data(start_date: str, end_date: str) -> Dict[str, Any]:
+    """Fetch all GSC data"""
+    return await gsc_client.fetch_all_data(start_date, end_date)
 
 
 if __name__ == "__main__":
     async def test():
-        result = await fetch_ga4_data('2025-11-01', '2026-02-28')
-        print(f"Traffic: {result['traffic']}")
-        print(f"Channels: {len(result['channels'])}")
-        print(f"Top Pages: {len(result['topPages'])}")
-        print(f"Events: {len(result['events'])}")
+        result = await fetch_gsc_data('2025-11-01', '2026-02-28')
+        print(f"Summary: {result['summary']}")
+        print(f"Top Queries: {len(result['queries'])}")
+        print(f"Top Pages: {len(result['pages'])}")
     
     asyncio.run(test())
