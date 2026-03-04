@@ -469,14 +469,24 @@ with tabs[6]:
         
         c1, c2 = st.columns(2)
         with c1:
-            fig = px.bar(df_cons, x="total_appointments", y="consultant_name", orientation='h', title="Appointments per Consultant", color_discrete_sequence=[accent])
-            st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+            if 'total_appointments' in df_cons.columns and 'consultant_name' in df_cons.columns:
+                fig = px.bar(df_cons, x="total_appointments", y="consultant_name", orientation='h', title="Appointments per Consultant", color_discrete_sequence=[accent])
+                st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+            else:
+                st.info("Missing appointment columns in data.")
         with c2:
-            fig_v = px.bar(df_cons, x="total_value", y="consultant_name", orientation='h', title="Revenue Impact per Consultant", color_discrete_sequence=["#8b5cfc"])
-            st.plotly_chart(apply_chart_style(fig_v), use_container_width=True)
+            if 'total_value' in df_cons.columns and 'consultant_name' in df_cons.columns:
+                fig_v = px.bar(df_cons, x="total_value", y="consultant_name", orientation='h', title="Revenue Impact per Consultant", color_discrete_sequence=["#8b5cfc"])
+                st.plotly_chart(apply_chart_style(fig_v), use_container_width=True)
+            else:
+                st.info("Missing revenue columns in data.")
             
         st.markdown("#### Leaderboard")
-        st.dataframe(df_cons[['consultant_name', 'total_appointments', 'won_count', 'total_value']].sort_values('total_value', ascending=False), use_container_width=True)
+        cols = ['consultant_name', 'total_appointments', 'won_count', 'total_value']
+        if all(c in df_cons.columns for c in cols):
+            st.dataframe(df_cons[cols].sort_values('total_value', ascending=False), use_container_width=True)
+        else:
+            st.dataframe(df_cons, use_container_width=True)
     else:
         st.info("No consultant data found.")
 
