@@ -4,7 +4,7 @@ Uses aiohttp for concurrent async requests
 """
 import aiohttp
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import json
 
@@ -410,13 +410,40 @@ class GHLAsyncClient:
         
         self._consultants_cache = consultant_results
         return consultant_results
+
+    async def fetch_consultant_pulse(self, opportunities: List[Dict]) -> Dict[str, List[Dict]]:
+        """Fetch Today and Weekly metrics for scoreboard"""
+        # 1. Fetch Today
+        today = datetime.now().date()
+        today_str = today.strftime('%Y-%m-%d')
+        today_res = await self.fetch_consultant_metrics(start_date=today_str, end_date=today_str, opportunities=opportunities)
+        for dr in today_res: dr['Type'] = 'Today'
+
+        # 2. Fetch Weekly
+        start_of_week = today - timedelta(days=today.weekday()) # Monday
+        end_of_week = start_of_week + timedelta(days=4) # Friday
+        weekly_res = await self.fetch_consultant_metrics(
+            start_date=start_of_week.strftime('%Y-%m-%d'),
+            end_date=end_of_week.strftime('%Y-%m-%d'),
+            opportunities=opportunities
+        )
+        for dr in weekly_res: dr['Type'] = 'Weekly'
+
+        return {
+            "today": today_res,
+            "weekly": weekly_res
+        }
     
     # ==================== COMBINED FETCH ====================
     
-    async def fetch_all_data(self) -> Dict[str, Any]:
+    async def fetch_all_data(self, start_date: str = "2025-11-01", end_date: str = None) -> Dict[str, Any]:
         """Fetch ALL data concurrently - FASTEST approach"""
-        print("Fetching all GHL data concurrently...")
+        print(f"Fetching GHL data from {start_date} to {end_date}...")
         
+        # Ensure end_date
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+
         # Fetch core data in parallel
         contacts_raw, opportunities_raw, pipelines, users = await asyncio.gather(
             self.fetch_all_contacts(),
@@ -428,30 +455,27 @@ class GHLAsyncClient:
         # Merge opportunities so we have names/values for metrics
         merged_opps = merge_opportunity_data(opportunities_raw, pipelines, users)
         
-        # Now fetch consultant metrics with these opportunities
-        consultants_metrics = await self.fetch_consultant_metrics(opportunities=merged_opps)
+        # Now fetch consultant pulse (Today/Weekly)
+        consultant_pulse = await self.fetch_consultant_pulse(opportunities=merged_opps)
         
-        # Deriv appointments from consultants_metrics to avoid redundant API hits
-        appointments = []
-        for c in consultants_metrics:
-            appointments.extend(c.get("events", []))
-        self._appointments_cache = appointments
+        # appointments for the original range
+        appointments = await self.fetch_all_appointments(start_date, end_date)
         
         return {
             "contacts": contacts_raw,
-            "opportunities": opportunities_raw,
+            "opportunities": merged_opps, # Return merged
             "appointments": appointments,
             "pipelines": pipelines,
             "users": users,
-            "consultants": consultants_metrics,
+            "consultants_today": consultant_pulse["today"],
+            "consultants_weekly": consultant_pulse["weekly"],
             "fetched_at": datetime.now().isoformat(),
             "counts": {
                 "contacts": len(contacts_raw),
-                "opportunities": len(opportunities_raw),
+                "opportunities": len(merged_opps),
                 "appointments": len(appointments),
-                "pipelines": len(pipelines),
-                "users": len(users),
-                "consultants": len(consultants_metrics)
+                "consultants_today": len(consultant_pulse["today"]),
+                "consultants_weekly": len(consultant_pulse["weekly"])
             }
         }
     
