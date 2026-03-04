@@ -186,7 +186,7 @@ def load_all_intelligence(start_date, end_date):
     async def fetch_everything():
         # Fetching tasks
         tasks = [
-            ghl_client.fetch_all_data(start_str, end_str),
+            ghl_client.fetch_all_data(),
             fetch_meta_data(start_str, end_str),
             fetch_ga4_data(start_str, end_str),
             fetch_gsc_data(start_str, end_str)
