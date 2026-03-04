@@ -20,6 +20,13 @@ def get_google_creds():
         'https://www.googleapis.com/auth/analytics.readonly',
         'https://www.googleapis.com/auth/webmasters.readonly'
     ]
+    
+    # Set environment variable for library preference
+    if os.path.exists("google_creds.json"):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("google_creds.json")
+    elif os.path.exists("service_account.json"):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("service_account.json")
+
     try:
         if "google" in st.secrets and st.secrets["google"] is not None:
             if "gsc_credentials" in st.secrets["google"]:
@@ -31,6 +38,8 @@ def get_google_creds():
         print(f"Secrets Credential Error: {e}")
         pass
     
+    if os.path.exists("google_creds.json"): # Prefer GSC-specific creds
+        return service_account.Credentials.from_service_account_file("google_creds.json", scopes=scopes)
     if os.path.exists("service_account.json"):
         return service_account.Credentials.from_service_account_file("service_account.json", scopes=scopes)
     return None
@@ -79,90 +88,69 @@ class GSCAsyncClient:
             raise e
     
     async def fetch_trend(self, start_date: str, end_date: str) -> List[Dict]:
-        """Fetch daily trend data"""
+        """Fetch daily trend data with country dimension"""
         service = self.get_service()
-        
         request = {
             'startDate': start_date,
             'endDate': end_date,
-            'dimensions': ['date'],
-            'rowLimit': 1000
+            'dimensions': ['date', 'country'],
+            'rowLimit': 5000
         }
-        
-        response = self._execute_request(service.searchanalytics().query(
-            siteUrl=GSC_SITE_URL,
-            body=request
-        ))
-        
+        response = self._execute_request(service.searchanalytics().query(siteUrl=GSC_SITE_URL, body=request))
         rows = response.get('rows', [])
         data = []
         for row in rows:
             data.append({
-                'date': row['keys'][0],
+                'keys': row['keys'], # [date, country]
                 'clicks': row['clicks'],
                 'impressions': row['impressions'],
-                'ctr': row['ctr'] * 100,  # Convert to percentage
+                'ctr': row['ctr'],
                 'position': row['position']
             })
-        
         return data
     
-    async def fetch_queries(self, start_date: str, end_date: str, limit: int = 50) -> List[Dict]:
-        """Fetch top search queries"""
+    async def fetch_queries(self, start_date: str, end_date: str, limit: int = 200) -> List[Dict]:
+        """Fetch top search queries with country dimension"""
         service = self.get_service()
-        
         request = {
             'startDate': start_date,
             'endDate': end_date,
-            'dimensions': ['query'],
+            'dimensions': ['query', 'country'],
             'rowLimit': limit
         }
-        
-        response = self._execute_request(service.searchanalytics().query(
-            siteUrl=GSC_SITE_URL,
-            body=request
-        ))
-        
+        response = self._execute_request(service.searchanalytics().query(siteUrl=GSC_SITE_URL, body=request))
         rows = response.get('rows', [])
         data = []
         for row in rows:
             data.append({
-                'query': row['keys'][0],
+                'keys': row['keys'], # [query, country]
                 'clicks': row['clicks'],
                 'impressions': row['impressions'],
-                'ctr': row['ctr'] * 100,
+                'ctr': row['ctr'],
                 'position': row['position']
             })
-        
         return data
     
-    async def fetch_pages(self, start_date: str, end_date: str, limit: int = 50) -> List[Dict]:
-        """Fetch top content pages"""
+    async def fetch_pages(self, start_date: str, end_date: str, limit: int = 200) -> List[Dict]:
+        """Fetch top content pages with country dimension"""
         service = self.get_service()
-        
         request = {
             'startDate': start_date,
             'endDate': end_date,
-            'dimensions': ['page'],
+            'dimensions': ['page', 'country'],
             'rowLimit': limit
         }
-        
-        response = self._execute_request(service.searchanalytics().query(
-            siteUrl=GSC_SITE_URL,
-            body=request
-        ))
-        
+        response = self._execute_request(service.searchanalytics().query(siteUrl=GSC_SITE_URL, body=request))
         rows = response.get('rows', [])
         data = []
         for row in rows:
             data.append({
-                'page': row['keys'][0],
+                'keys': row['keys'], # [page, country]
                 'clicks': row['clicks'],
                 'impressions': row['impressions'],
-                'ctr': row['ctr'] * 100,
+                'ctr': row['ctr'],
                 'position': row['position']
             })
-        
         return data
     
     async def fetch_countries(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
@@ -236,6 +224,9 @@ class GSCAsyncClient:
         # Calculate totals
         total_clicks = sum(d['clicks'] for d in trend)
         total_impressions = sum(d['impressions'] for d in trend)
+        
+        # Weighted Average CTR and Position - or just simple account-level query if needed
+        # But for now, simple average of the daily-country rows
         avg_ctr = sum(d['ctr'] for d in trend) / len(trend) if trend else 0
         avg_position = sum(d['position'] for d in trend) / len(trend) if trend else 0
         
@@ -243,9 +234,9 @@ class GSCAsyncClient:
             'summary': {
                 'total_clicks': total_clicks,
                 'total_impressions': total_impressions,
-                'avg_ctr': avg_ctr,
+                'avg_ctr': avg_ctr * 100,
                 'avg_position': avg_position,
-                'days': len(trend)
+                'days': len(set(d['keys'][0] for d in trend)) if trend else 0
             },
             'trend': trend,
             'queries': queries,
