@@ -29,6 +29,13 @@ def get_google_creds():
         'https://www.googleapis.com/auth/analytics.readonly',
         'https://www.googleapis.com/auth/webmasters.readonly'
     ]
+    
+    # Set environment variable for backward compatibility or library preference
+    if os.path.exists("service_account.json"):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("service_account.json")
+    elif os.path.exists("google_creds.json"):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath("google_creds.json")
+
     try:
         if "google" in st.secrets and st.secrets["google"] is not None:
             if "gsc_credentials" in st.secrets["google"]:
@@ -42,6 +49,8 @@ def get_google_creds():
     
     if os.path.exists("service_account.json"):
         return service_account.Credentials.from_service_account_file("service_account.json", scopes=scopes)
+    if os.path.exists("google_creds.json"):
+        return service_account.Credentials.from_service_account_file("google_creds.json", scopes=scopes)
     return None
 
 
@@ -124,29 +133,26 @@ class GA4AsyncClient:
             'pageViews': 0, 'conversions': 0
         }
     
-    async def fetch_channels(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
-        """Fetch traffic by channel"""
+    async def fetch_channels(self, start_date: str, end_date: str, limit: int = 50) -> List[Dict]:
+        """Fetch traffic by channel with country dimension for filtering"""
         client = self.get_client()
-        
         request = RunReportRequest(
             property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="sessionDefaultChannelGroup")],
+            dimensions=[Dimension(name="sessionDefaultChannelGroup"), Dimension(name="country")],
             metrics=[Metric(name="sessions"), Metric(name="activeUsers"), Metric(name="keyEvents")],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
             limit=limit
         )
-        
         response = client.run_report(request)
-        
         data = []
         for row in response.rows:
             data.append({
                 'channel': row.dimension_values[0].value,
+                'country': row.dimension_values[1].value,
                 'sessions': int(row.metric_values[0].value),
                 'activeUsers': int(row.metric_values[1].value),
                 'conversions': int(row.metric_values[2].value)
             })
-        
         return data
     
     async def fetch_top_pages(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
@@ -180,30 +186,49 @@ class GA4AsyncClient:
         
         return data
     
-    async def fetch_events(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
-        """Fetch top events"""
+    async def fetch_events(self, start_date: str, end_date: str, limit: int = 50) -> List[Dict]:
+        """Fetch top events with country dimension"""
         client = self.get_client()
-        
         request = RunReportRequest(
             property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="eventName")],
+            dimensions=[Dimension(name="eventName"), Dimension(name="country")],
             metrics=[Metric(name="eventCount"), Metric(name="totalUsers")],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
             limit=limit
         )
-        
         response = client.run_report(request)
-        
         data = []
         for row in response.rows:
             users = int(row.metric_values[1].value)
             data.append({
                 'event': row.dimension_values[0].value,
+                'country': row.dimension_values[1].value,
                 'count': int(row.metric_values[0].value),
-                'users': users,
-                'countPerUser': round(int(row.metric_values[0].value) / users, 2) if users > 0 else 0
+                'users': users
             })
-        
+        return data
+
+    async def fetch_daily_metrics(self, start_date: str, end_date: str) -> List[Dict]:
+        """Fetch daily metrics for trend charts"""
+        client = self.get_client()
+        request = RunReportRequest(
+            property=f"properties/{PROPERTY_ID}",
+            dimensions=[Dimension(name="date"), Dimension(name="country")],
+            metrics=[Metric(name="activeUsers"), Metric(name="sessions"), Metric(name="keyEvents"), Metric(name="screenPageViews"), Metric(name="bounceRate")],
+            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+        )
+        response = client.run_report(request)
+        data = []
+        for row in response.rows:
+            data.append({
+                'Date': row.dimension_values[0].value,
+                'Country': row.dimension_values[1].value,
+                'Active Users': int(row.metric_values[0].value),
+                'Sessions': int(row.metric_values[1].value),
+                'Key Events': int(row.metric_values[2].value),
+                'Views': int(row.metric_values[3].value),
+                'Bounce Rate': float(row.metric_values[4].value)
+            })
         return data
     
     async def fetch_countries(self, start_date: str, end_date: str, limit: int = 20) -> List[Dict]:
@@ -233,12 +258,13 @@ class GA4AsyncClient:
     async def fetch_all_data(self, start_date: str, end_date: str) -> Dict[str, Any]:
         """Fetch all GA4 data concurrently"""
         # Run all requests concurrently
-        traffic, channels, pages, events, countries = await asyncio.gather(
+        traffic, channels, pages, events, countries, daily = await asyncio.gather(
             self.fetch_traffic_summary(start_date, end_date),
             self.fetch_channels(start_date, end_date),
             self.fetch_top_pages(start_date, end_date),
             self.fetch_events(start_date, end_date),
-            self.fetch_countries(start_date, end_date)
+            self.fetch_countries(start_date, end_date),
+            self.fetch_daily_metrics(start_date, end_date)
         )
         
         return {
@@ -247,6 +273,7 @@ class GA4AsyncClient:
             'topPages': pages,
             'events': events,
             'countries': countries,
+            'daily': daily,
             'fetched_at': datetime.now().isoformat()
         }
     
