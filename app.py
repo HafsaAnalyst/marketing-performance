@@ -35,12 +35,14 @@ if "authenticated" not in st.session_state:
 
 def login_gate():
     if not st.session_state.authenticated:
+        # Try to get credentials from secrets, or use defaults for local testing
         try:
             auth_user = st.secrets["auth"]["username"]
             auth_pass = st.secrets["auth"]["password"]
         except:
-            st.error("Missing Secrets: Please configure `auth.username` and `auth.password` in Streamlit Secrets.")
-            st.stop()
+            # Fallback for local testing
+            auth_user = "themigration"
+            auth_pass = "1900clients"
             
         st.markdown("<div style='text-align: center; padding-top: 100px;'>", unsafe_allow_html=True)
         st.title("🔐 Marketing Intelligence Login")
@@ -189,14 +191,31 @@ def load_all_intelligence(start_date, end_date):
             fetch_ga4_data(start_str, end_str),
             fetch_gsc_data(start_str, end_str)
         ]
-        return await asyncio.gather(*tasks)
+        # return_exceptions=True prevents one failing service from crashing the whole sync
+        return await asyncio.gather(*tasks, return_exceptions=True)
     
     try:
         results = loop.run_until_complete(fetch_everything())
-        return {"ghl": results[0], "meta": results[1], "ga4": results[2], "gsc": results[3]}
+        
+        # Process results and log any errors
+        processed = []
+        services = ["GHL", "Meta", "GA4", "Search Console"]
+        for i, res in enumerate(results):
+            if isinstance(res, Exception):
+                st.warning(f"⚠️ {services[i]} Sync limited: {str(res)}")
+                processed.append({}) # Provide empty dict for failed service
+            else:
+                processed.append(res)
+                
+        return {
+            "ghl": processed[0], 
+            "meta": processed[1], 
+            "ga4": processed[2], 
+            "gsc": processed[3]
+        }
     except Exception as e:
         error_details = traceback.format_exc()
-        st.error(f"Intelligence Sync Failed: {e}")
+        st.error(f"Critical Intelligence Sync Failure: {e}")
         with st.expander("Show Technical Details"):
             st.code(error_details)
         return None
