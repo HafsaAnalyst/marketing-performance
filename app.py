@@ -162,15 +162,24 @@ def apply_chart_style(fig):
 # --- DATA ORCHESTRATION ---
 @st.cache_data(ttl=900)
 def load_all_intelligence(start_date, end_date):
+    """
+    Consolidated async fetcher. This runs all API clients in parallel
+    using an event loop created within the Streamlit thread.
+    """
+    # Convert dates to strings for API compatibility
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
     async def fetch_everything():
+        # Fetching tasks
         tasks = [
             ghl_client.fetch_all_data(),
-            fetch_meta_data(start_date, end_date),
-            fetch_ga4_data(start_date, end_date),
-            fetch_gsc_data(start_date, end_date)
+            fetch_meta_data(start_str, end_str),
+            fetch_ga4_data(start_str, end_str),
+            fetch_gsc_data(start_str, end_str)
         ]
         return await asyncio.gather(*tasks)
     
