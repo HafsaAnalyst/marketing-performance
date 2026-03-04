@@ -207,6 +207,19 @@ def load_all_intelligence(start_date, end_date):
             else:
                 processed.append(res)
                 
+        # Merge GHL data if raw results exist
+        ghl_raw = processed[0]
+        if ghl_raw and isinstance(ghl_raw, dict) and "opportunities" in ghl_raw:
+            from ghl_async_client import merge_contact_data, merge_opportunity_data
+            ghl_raw["contacts"] = merge_contact_data(
+                ghl_raw["contacts"], ghl_raw["opportunities"], 
+                ghl_raw["appointments"], ghl_raw["pipelines"], ghl_raw["users"]
+            )
+            ghl_raw["opportunities"] = merge_opportunity_data(
+                ghl_raw["opportunities"], ghl_raw["pipelines"], ghl_raw["users"]
+            )
+            processed[0] = ghl_raw
+                
         return {
             "ghl": processed[0], 
             "meta": processed[1], 
@@ -256,10 +269,10 @@ if not opps.empty:
     mapping = {
         'value': 'Opportunity Value',
         'status': 'Status',
-        'pipeline_name': 'Pipeline',
-        'stage_name': 'Stage',
-        'assigned_to': 'Lead Owner',
-        'date_added': 'created_date'
+        'pipeline': 'Pipeline',
+        'stage': 'Stage',
+        'owner': 'Lead Owner',
+        'created_date': 'created_date'
     }
     # Safe rename logic
     if hasattr(opps, 'columns') and opps.columns is not None:
@@ -377,9 +390,18 @@ with tabs[4]:
         st.subheader("Pipeline Analysis")
         o1, o2, o3 = st.columns(3)
         with o1: okr_scorecard("Total Opportunities", f"{len(opps):,}")
-        with o2: okr_scorecard("Pipeline Value", f"${opps['Opportunity Value'].sum():,.0f}", color="#10b981")
+        
+        # Safe access for Opportunity Value
+        pipe_val = 0
+        if 'Opportunity Value' in opps.columns:
+            pipe_val = opps['Opportunity Value'].sum()
+        with o2: okr_scorecard("Pipeline Value", f"${pipe_val:,.0f}", color="#10b981")
+        
         with o3:
-            l2c_open = len(opps[(opps['Pipeline'] == 'L2C - Education') & (opps['Status'] == 'open')])
+            # Safe column access for filtering
+            l2c_open = 0
+            if 'Pipeline' in opps.columns and 'Status' in opps.columns:
+                l2c_open = len(opps[(opps['Pipeline'] == 'L2C - Education') & (opps['Status'] == 'open')])
             okr_scorecard("Open L2C Opps", f"{l2c_open:,}", color="#8b5cfc")
             
         st.write("---")
@@ -390,16 +412,21 @@ with tabs[4]:
             STAGE_ORDER = ["New Lead", "Qualifier", "Pre Sales (1)", "Pre Sales (2)", "Appointment Booked", "Won"]
             funnel_data = []
             for s in STAGE_ORDER:
-                count = len(opps[(opps['Stage'] == s) & (opps['Status'] == 'open')]) if s != "Won" else len(opps[opps['Status'] == 'won'])
+                count = 0
+                if 'Stage' in opps.columns and 'Status' in opps.columns:
+                    count = len(opps[(opps['Stage'] == s) & (opps['Status'] == 'open')]) if s != "Won" else len(opps[opps['Status'] == 'won'])
                 funnel_data.append({"Stage": s, "Count": count})
             fig_f = px.funnel(pd.DataFrame(funnel_data), x="Count", y="Stage", color_discrete_sequence=[accent])
             st.plotly_chart(apply_chart_style(fig_f), use_container_width=True)
             
         with col_c2:
             st.subheader("Status Breakdown")
-            status_df = opps['Status'].value_counts().reset_index()
-            fig_p = px.pie(status_df, values='count', names='Status', hole=0.5, color_discrete_sequence=[accent, "#1e3a8a", "#94a3b8"])
-            st.plotly_chart(apply_chart_style(fig_p), use_container_width=True)
+            if 'Status' in opps.columns:
+                status_df = opps['Status'].value_counts().reset_index()
+                fig_p = px.pie(status_df, values='count', names='Status', hole=0.5, color_discrete_sequence=[accent, "#1e3a8a", "#94a3b8"])
+                st.plotly_chart(apply_chart_style(fig_p), use_container_width=True)
+            else:
+                st.info("No status data available.")
     else:
         st.info("No opportunity data found.")
 
