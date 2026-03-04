@@ -360,21 +360,48 @@ class GHLAsyncClient:
         
         return self._users_cache
     
-    async def fetch_consultant_metrics(self, start_date: str = "2025-11-01", end_date: str = None) -> List[Dict]:
-        """Fetch consultant appointment metrics using the flat appointments list"""
+    async def fetch_consultant_metrics(self, start_date: str = "2025-11-01", end_date: str = None, opportunities: List[Dict] = None) -> List[Dict]:
+        """Fetch consultant appointment metrics and cross-reference with opportunities"""
         # Ensure we have the raw appointments first
         all_events = await self.fetch_all_appointments(start_date, end_date)
         
+        # Build opportunity stats by consultant name
+        opp_stats = {}
+        if opportunities:
+            for opp in opportunities:
+                owner = opp.get("owner")
+                if owner and owner != "Unassigned":
+                    if owner not in opp_stats:
+                        opp_stats[owner] = {"won_count": 0, "total_value": 0}
+                    if opp.get("status") == "won":
+                        opp_stats[owner]["won_count"] += 1
+                    opp_stats[owner]["total_value"] += float(opp.get("value", 0))
+
         # Now process stats per consultant
         consultant_results = []
         for cal_id, name in CONSULTANTS.items():
             # Filter events for this consultant
             cal_events = [e for e in all_events if e.get("calendarId") == cal_id]
             
+            # Get stats from opportunities (partial name match for safety)
+            stats = {"won_count": 0, "total_value": 0}
+            # Simple exact match first
+            if name in opp_stats:
+                stats = opp_stats[name]
+            else:
+                # Try partial match (e.g. "Turab - Career Counsellor" match "Turab")
+                name_prefix = name.split(" - ")[0]
+                for owner_name, ostats in opp_stats.items():
+                    if name_prefix in owner_name:
+                        stats = ostats
+                        break
+            
             consultant_results.append({
                 "consultant_name": name,
                 "calendar_id": cal_id,
                 "total_appointments": len(cal_events),
+                "won_count": stats["won_count"],
+                "total_value": stats["total_value"],
                 "busy_slots": len(cal_events),
                 "empty_spaces": max(0, 14 - len(cal_events)),
                 "max_capacity": 14,
@@ -390,14 +417,19 @@ class GHLAsyncClient:
         """Fetch ALL data concurrently - FASTEST approach"""
         print("Fetching all GHL data concurrently...")
         
-        # Fetch everything in parallel - note that appointments is integrated into consultants
-        contacts, opportunities, pipelines, users, consultants_metrics = await asyncio.gather(
+        # Fetch core data in parallel
+        contacts_raw, opportunities_raw, pipelines, users = await asyncio.gather(
             self.fetch_all_contacts(),
             self.fetch_all_opportunities(),
             self.fetch_pipelines(),
-            self.fetch_users(),
-            self.fetch_consultant_metrics()
+            self.fetch_users()
         )
+        
+        # Merge opportunities so we have names/values for metrics
+        merged_opps = merge_opportunity_data(opportunities_raw, pipelines, users)
+        
+        # Now fetch consultant metrics with these opportunities
+        consultants_metrics = await self.fetch_consultant_metrics(opportunities=merged_opps)
         
         # Deriv appointments from consultants_metrics to avoid redundant API hits
         appointments = []
@@ -406,16 +438,16 @@ class GHLAsyncClient:
         self._appointments_cache = appointments
         
         return {
-            "contacts": contacts,
-            "opportunities": opportunities,
+            "contacts": contacts_raw,
+            "opportunities": opportunities_raw,
             "appointments": appointments,
             "pipelines": pipelines,
             "users": users,
             "consultants": consultants_metrics,
             "fetched_at": datetime.now().isoformat(),
             "counts": {
-                "contacts": len(contacts),
-                "opportunities": len(opportunities),
+                "contacts": len(contacts_raw),
+                "opportunities": len(opportunities_raw),
                 "appointments": len(appointments),
                 "pipelines": len(pipelines),
                 "users": len(users),
