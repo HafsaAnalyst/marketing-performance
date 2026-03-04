@@ -132,7 +132,8 @@ class MetaAsyncClient:
             
             # Results logic
             lead_forms = get_act('lead')
-            web_conversions = sum(float(a['value']) for a in actions if 'offsite_conversion' in a['action_type'])
+            # Safe check for action_type in case it is None
+            web_conversions = sum(float(a['value']) for a in actions if 'offsite_conversion' in (a.get('action_type') or ''))
             final_results = int(lead_forms if lead_forms > 0 else (lead_forms + web_conversions))
             
             processed.append({
