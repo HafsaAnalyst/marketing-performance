@@ -38,8 +38,14 @@ def get_google_creds():
 
     try:
         if "google" in st.secrets and st.secrets["google"] is not None:
-            if "gsc_credentials" in st.secrets["google"]:
+            # Check for GSC specific or fallback to general creds
+            secret = None
+            if "ga4_credentials" in st.secrets["google"]:
+                secret = st.secrets["google"]["ga4_credentials"]
+            elif "gsc_credentials" in st.secrets["google"]:
                 secret = st.secrets["google"]["gsc_credentials"]
+            
+            if secret:
                 if isinstance(secret, str):
                     return service_account.Credentials.from_service_account_info(json.loads(secret), scopes=scopes)
                 return service_account.Credentials.from_service_account_info(dict(secret), scopes=scopes)
