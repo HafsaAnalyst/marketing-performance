@@ -16,7 +16,7 @@ try:
     APP_SECRET = st.secrets["meta"]["app_secret"]
     AD_ACCOUNT_ID = st.secrets["meta"]["ad_account_id"]
 except:
-    ACCESS_TOKEN = "EAAWYAtm7TKsBQwh69TXCFXf1Q7r921FVx88zWvUPRC7xswAgTrG04gb7YmsMKZBjfTxzAhA9fAlbsrOjvcmpVFa89GBgAuCoef7ntpmZCVflyKASFb0zfoNep6I4zblPVDd0B3ZC46JIKxdpivP1xfXoPXW2L74ZAf1LAmtqzD2RXOExECsKBZCx6mschJM3AIveI"
+    ACCESS_TOKEN = "EAAWYAtm7TKsBQ4zb1LndIDLktPy7psadJZATb9Gc9X0R53xsE8PfqMxSAWQrd56dEZAvCPstNSoeS952V1jiZAYZBXmu5O6IZC1pyAPEuDZAOZBR6GiuVBZA6ihZA5NuBhZCR7ZBLcbPW8QBhVBP8EcUZAWosdKVhzCbg2Ib06R4NeHA3VXDupEmL7xKnVCjJKL6XMIxoGQg"
     APP_ID = "1574512893840555"
     APP_SECRET = "2f2984631ab5a1dd0606a8d09e45f100"
     AD_ACCOUNT_ID = "act_600555439172695"
@@ -67,7 +67,13 @@ class MetaAsyncClient:
         url = f"{BASE_URL}/{AD_ACCOUNT_ID}/insights"
         
         # Build fields list
-        fields = 'campaign_name,campaign_id,reach,frequency,impressions,spend,cpm,clicks,ctr,cpc,inline_link_clicks,inline_link_click_ctr,actions,action_values,cost_per_action_type'
+        fields = (
+            'campaign_name,campaign_id,reach,frequency,impressions,spend,cpm,clicks,ctr,cpc,'
+            'inline_link_clicks,inline_link_click_ctr,outbound_clicks,landing_page_views,'
+            'actions,action_values,cost_per_action_type,'
+            'video_thruplay_watched_actions,video_30_sec_watched_actions,video_p25_watched_actions,'
+            'video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions'
+        )
         
         params = {
             'access_token': ACCESS_TOKEN,
@@ -80,8 +86,6 @@ class MetaAsyncClient:
 
         if breakdown == 'country':
             params['breakdowns'] = 'country'
-            # Note: For breakdowns, Meta allows adding the dimension to fields to get the value in the response
-            params['fields'] += ',country'
         
         all_data = []
         after_cursor = None
@@ -129,36 +133,102 @@ class MetaAsyncClient:
             
             def get_cost(name):
                 return next((float(a['value']) for a in costs if a['action_type'] == name), 0)
+
+            # Video Retention
+            thruplays = sum(float(a['value']) for a in entry.get('video_thruplay_watched_actions', []))
+            v3s = sum(float(a['value']) for a in entry.get('video_30_sec_watched_actions', [])) # Using 30s as proxy if 3s not available or similar
+            # Use action_type based 3s if available
+            v3s_act = get_act('video_view') 
+            v3s_final = v3s_act if v3s_act > 0 else v3s
+            
+            v50 = sum(float(a['value']) for a in entry.get('video_p50_watched_actions', []))
+            v95 = sum(float(a['value']) for a in entry.get('video_p95_watched_actions', []))
+            
+            # Outbound Clicks
+            outbound = sum(float(a['value']) for a in entry.get('outbound_clicks', []))
+            lp_views = sum(float(a['value']) for a in entry.get('landing_page_views', []))
             
             # Results logic
             lead_forms = get_act('lead')
-            # Safe check for action_type in case it is None
             web_conversions = sum(float(a['value']) for a in actions if 'offsite_conversion' in (a.get('action_type') or ''))
             final_results = int(lead_forms if lead_forms > 0 else (lead_forms + web_conversions))
             
             processed.append({
-                'campaign_id': entry.get('campaign_id'),
-                'campaign_name': entry.get('campaign_name'),
-                'results': final_results,
-                'reach': entry.get('reach'),
-                'frequency': float(entry.get('frequency', 0)),
-                'impressions': entry.get('impressions'),
-                'spend': float(entry.get('spend', 0)),
-                'cpm': float(entry.get('cpm', 0)),
-                'clicks': entry.get('clicks'),
-                'ctr': float(entry.get('ctr', 0)),
-                'cpc': float(entry.get('cpc', 0)),
-                'link_clicks': entry.get('inline_link_clicks'),
-                'link_ctr': float(entry.get('inline_link_click_ctr', 0)),
-                'leads': int(lead_forms),
-                'web_conversions': int(web_conversions),
-                'cost_per_lead': get_cost('lead') or get_cost('offsite_conversion.fb_pixel_purchase') or 0,
-                'country': entry.get('country', 'Unknown')
+                'Campaign': entry.get('campaign_name'),
+                'Campaign ID': entry.get('campaign_id'),
+                'Results': final_results,
+                'Reach': int(entry.get('reach', 0)),
+                'Frequency': float(entry.get('frequency', 0)),
+                'Impressions': int(entry.get('impressions', 0)),
+                'Amount spent': float(entry.get('spend', 0)),
+                'CPM': float(entry.get('cpm', 0)),
+                'Clicks': int(entry.get('clicks', 0)),
+                'CTR (all)': float(entry.get('ctr', 0)),
+                'CPC': float(entry.get('cpc', 0)),
+                'Link clicks': int(entry.get('inline_link_clicks', 0)),
+                'CTR (link click-through rate)': float(entry.get('inline_link_click_ctr', 0)),
+                'Outbound clicks': int(outbound),
+                'Landing page views': int(lp_views),
+                '3s Hold': int(v3s_final),
+                'Thruplays': int(thruplays),
+                '50% Hook': int(v50),
+                '95% Hook': int(v95),
+                'Leads': int(lead_forms),
+                'Web Conversions': int(web_conversions),
+                'Cost per lead': get_cost('lead') or get_cost('offsite_conversion.fb_pixel_purchase') or 0,
+                'Country': entry.get('country', 'Unknown'),
+                '_actions': {a['action_type']: float(a['value']) for a in actions}
             })
         
         self._campaigns_cache = processed
         self._cache_key = cache_key
         self._last_fetch = datetime.now()
+        return processed
+    
+    async def fetch_campaigns_daily(self, start_date: str, end_date: str) -> List[Dict]:
+        """Fetch daily campaign insights for trend analysis"""
+        session = await self.get_session()
+        url = f"{BASE_URL}/{AD_ACCOUNT_ID}/insights"
+        fields = 'date_start,results,impressions,spend'
+        
+        params = {
+            'access_token': ACCESS_TOKEN,
+            'level': 'account', # Account level is enough for daily decay
+            'time_range': json.dumps({'since': start_date, 'until': end_date}),
+            'time_increment': 1,
+            'fields': fields,
+            'limit': 500
+        }
+        
+        all_data = []
+        after_cursor = None
+        while True:
+            qp = params.copy()
+            if after_cursor: qp['after'] = after_cursor
+            try:
+                async with session.get(url, params=qp) as response:
+                    if response.status != 200: break
+                    data = await response.json()
+                    insights = data.get('data', [])
+                    if not insights: break
+                    all_data.extend(insights)
+                    after_cursor = data.get('paging', {}).get('cursors', {}).get('after')
+                    if not after_cursor: break
+            except: break
+            
+        processed = []
+        for entry in all_data:
+            results = sum(float(a['value']) for a in entry.get('actions', [])) # Fallback if results field doesn't work well
+            if 'results' in entry:
+                results = float(entry['results'])
+            
+            processed.append({
+                'Date': entry.get('date_start'),
+                'Results': results,
+                'Impressions': int(entry.get('impressions', 0)),
+                'Amount spent': float(entry.get('spend', 0)),
+                'Result Rate Raw': (results / int(entry['impressions'])) if int(entry.get('impressions', 0)) > 0 else 0
+            })
         return processed
     
     async def fetch_campaigns_by_country(self, start_date: str, end_date: str) -> List[Dict]:
@@ -178,16 +248,20 @@ meta_client = MetaAsyncClient()
 
 async def fetch_meta_data(start_date: str, end_date: str) -> Dict[str, Any]:
     """Fetch all Meta data"""
-    campaigns = await meta_client.fetch_campaigns(start_date, end_date)
+    campaigns, daily = await asyncio.gather(
+        meta_client.fetch_campaigns(start_date, end_date, breakdown='country'),
+        meta_client.fetch_campaigns_daily(start_date, end_date)
+    )
     
     # Calculate totals
-    total_spend = sum(c['spend'] for c in campaigns)
-    total_leads = sum(c['results'] for c in campaigns)
-    total_impressions = sum(int(c['impressions'] or 0) for c in campaigns)
-    total_clicks = sum(int(c['clicks'] or 0) for c in campaigns)
+    total_spend = sum(c['Amount spent'] for c in campaigns)
+    total_leads = sum(c['Results'] for c in campaigns)
+    total_impressions = sum(int(c['Impressions'] or 0) for c in campaigns)
+    total_clicks = sum(int(c['Clicks'] or 0) for c in campaigns)
     
     return {
         'campaigns': campaigns,
+        'daily': daily,
         'summary': {
             'total_spend': total_spend,
             'total_leads': total_leads,
