@@ -21,12 +21,14 @@ def get_google_creds():
         'https://www.googleapis.com/auth/webmasters.readonly'
     ]
     try:
-        if "google" in st.secrets and "gsc_credentials" in st.secrets["google"]:
-            secret = st.secrets["google"]["gsc_credentials"]
-            if isinstance(secret, str):
-                return service_account.Credentials.from_service_account_info(json.loads(secret), scopes=scopes)
-            return service_account.Credentials.from_service_account_info(dict(secret), scopes=scopes)
-    except:
+        if "google" in st.secrets and st.secrets["google"] is not None:
+            if "gsc_credentials" in st.secrets["google"]:
+                secret = st.secrets["google"]["gsc_credentials"]
+                if isinstance(secret, str):
+                    return service_account.Credentials.from_service_account_info(json.loads(secret), scopes=scopes)
+                return service_account.Credentials.from_service_account_info(dict(secret), scopes=scopes)
+    except Exception as e:
+        print(f"Secrets Credential Error: {e}")
         pass
     
     if os.path.exists("service_account.json"):
