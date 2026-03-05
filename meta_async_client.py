@@ -79,9 +79,11 @@ class MetaAsyncClient:
             'level': 'campaign',
             'time_range': json.dumps({'since': start_date, 'until': end_date}),
             'fields': fields,
-            'filtering': json.dumps([{'field': 'campaign.effective_status', 'operator': 'IN', 'value': ['ACTIVE', 'PAUSED']}]),
             'limit': 500
         }
+        # Looser filter to ensure we get data
+        params['filtering'] = json.dumps([{'field': 'campaign.effective_status', 'operator': 'IN', 'value': ['ACTIVE', 'PAUSED', 'ARCHIVED', 'DELETED', 'IN_PROCESS', 'WITH_ISSUES']}])
+
 
         if breakdown == 'country':
             params['breakdowns'] = 'country'
@@ -206,14 +208,19 @@ class MetaAsyncClient:
             if after_cursor: qp['after'] = after_cursor
             try:
                 async with session.get(url, params=qp) as response:
-                    if response.status != 200: break
-                    data = await response.json()
+                    raw_text = await response.text()
+                    if response.status != 200:
+                        print(f"Meta API Error (Daily Insights): {response.status} - {raw_text}")
+                        return all_data # Return partial data on error
+                    data = json.loads(raw_text)
                     insights = data.get('data', [])
                     if not insights: break
                     all_data.extend(insights)
                     after_cursor = data.get('paging', {}).get('cursors', {}).get('after')
                     if not after_cursor: break
-            except: break
+            except Exception as e:
+                print(f"Error fetching daily campaigns: {e}")
+                return all_data # Return partial data on exception
             
         processed = []
         for entry in all_data:
