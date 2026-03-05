@@ -207,16 +207,14 @@ def load_all_intelligence(start_date, end_date):
             else:
                 processed.append(res)
                 
-        # Merge GHL data if raw results exist
+        # The GHL client (ghl_async_client) already returns processed 'opportunities'
+        # but leaves contacts relatively raw. Let's ONLY merge contacts here.
         ghl_raw = processed[0]
-        if ghl_raw and isinstance(ghl_raw, dict) and "opportunities" in ghl_raw:
-            from ghl_async_client import merge_contact_data, merge_opportunity_data
+        if ghl_raw and isinstance(ghl_raw, dict) and "contacts" in ghl_raw:
+            from ghl_async_client import merge_contact_data
             ghl_raw["contacts"] = merge_contact_data(
                 ghl_raw["contacts"], ghl_raw["opportunities"], 
                 ghl_raw["appointments"], ghl_raw["pipelines"], ghl_raw["users"]
-            )
-            ghl_raw["opportunities"] = merge_opportunity_data(
-                ghl_raw["opportunities"], ghl_raw["pipelines"], ghl_raw["users"]
             )
             processed[0] = ghl_raw
                 
@@ -253,6 +251,13 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+def style_df(df, bold=False):
+    props = {'background-color': table_bg, 'color': text_color, 'border-color': border_color}
+    if bold: props['font-weight'] = 'bold'
+    if hasattr(df, 'style'):
+        return df.style.set_properties(**props)
+    return df
+
 tabs = st.tabs([
     "🎯 Our Vision", "📊 Ads & Creatives", "📈 Traffic Behavior", 
     "🔍 SEO Performance", "💼 Pipeline Analysis", "👥 Attribution Analysis", "👨‍🏫 Consultant Capacity"
@@ -266,8 +271,17 @@ STAGE_ORDER = [
 
 # --- GHL DATA PROCESSING ---
 ghl = all_data["ghl"]
+
 opps = pd.DataFrame(ghl.get('opportunities', []))
+if not opps.empty and 'created_date' in opps.columns:
+    opps['created_date'] = pd.to_datetime(opps['created_date']).dt.date
+    opps = opps[(opps['created_date'] >= date_range[0]) & (opps['created_date'] <= date_range[1])].copy()
+    
 contacts = pd.DataFrame(ghl.get('contacts', []))
+if not contacts.empty and 'contact_created' in contacts.columns:
+    contacts['contact_created'] = pd.to_datetime(contacts['contact_created']).dt.date
+    contacts = contacts[(contacts['contact_created'] >= date_range[0]) & (contacts['contact_created'] <= date_range[1])].copy()
+
 consultant_today = ghl.get('consultants_today', [])
 consultant_weekly = ghl.get('consultants_weekly', [])
 
@@ -288,9 +302,12 @@ if not opps.empty:
     if hasattr(opps, 'columns') and opps.columns is not None:
         safe_mapping = {k: v for k, v in mapping.items() if k in opps.columns}
         opps.rename(columns=safe_mapping, inplace=True)
-        
-        if 'created_date' in opps.columns:
-            opps['created_date'] = pd.to_datetime(opps['created_date']).dt.date
+            
+        # Ensure Country and City exist (may be mapped from unified API or merged data)
+        if 'Country' not in opps.columns and 'country' in opps.columns:
+            opps.rename(columns={'country': 'Country'}, inplace=True)
+        if 'City' not in opps.columns and 'city' in opps.columns:
+            opps.rename(columns={'city': 'City'}, inplace=True)
             
         def get_stage_pct(s):
             try:
