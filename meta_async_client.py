@@ -245,10 +245,10 @@ class MetaAsyncClient:
 meta_client = MetaAsyncClient()
 
 
-async def fetch_meta_data(start_date: str, end_date: str) -> Dict[str, Any]:
+async def fetch_meta_data(start_date: str, end_date: str, breakdown: Optional[str] = 'country') -> Dict[str, Any]:
     """Fetch all Meta data"""
     campaigns, daily = await asyncio.gather(
-        meta_client.fetch_campaigns(start_date, end_date, breakdown='country'),
+        meta_client.fetch_campaigns(start_date, end_date, breakdown=breakdown),
         meta_client.fetch_campaigns_daily(start_date, end_date)
     )
     
