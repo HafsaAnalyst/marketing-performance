@@ -498,8 +498,24 @@ with tabs[1]:
 with tabs[2]:
     ga4 = all_data.get("ga4", {})
     if ga4 and isinstance(ga4, dict) and "daily" in ga4:
-        df_daily = pd.DataFrame(ga4["daily"])
+        df_daily_raw = pd.DataFrame(ga4["daily"])
         
+        # --- GEO FILTERS ---
+        with st.expander("🌍 Geo & Context Filters (GA4)", expanded=False):
+            fg1, fg2 = st.columns(2)
+            with fg1:
+                all_ga_countries = sorted(df_daily_raw['Country'].unique()) if 'Country' in df_daily_raw.columns else []
+                sel_ga_countries = st.multiselect("Filter GA4 by Country", ["All"] + all_ga_countries, default="All", key="ga4_c_filt")
+            with fg2:
+                all_ga_cities = sorted(df_daily_raw['City'].unique()) if 'City' in df_daily_raw.columns else []
+                sel_ga_cities = st.multiselect("Filter GA4 by City", ["All"] + all_ga_cities, default="All", key="ga4_ct_filt")
+
+        df_daily = df_daily_raw.copy()
+        if "All" not in sel_ga_countries and sel_ga_countries:
+            df_daily = df_daily[df_daily['Country'].isin(sel_ga_countries)]
+        if "All" not in sel_ga_cities and sel_ga_cities:
+            df_daily = df_daily[df_daily['City'].isin(sel_ga_cities)]
+            
         # 1. Engagement Overview
         st.markdown("### **1. Engagement Overview**")
         t_active = df_daily["Active Users"].sum()
@@ -528,9 +544,17 @@ with tabs[2]:
         st.markdown("### **2. User Acquisition: Channel Trends**")
         if "channels" in ga4:
             df_chan = pd.DataFrame(ga4["channels"])
-            df_c_grp = df_chan.groupby('channel')['sessions'].sum().reset_index().sort_values('sessions', ascending=False)
-            fig_chan = px.bar(df_c_grp, x="sessions", y="channel", orientation='h', title="Sessions by Channel Group", color="sessions")
-            st.plotly_chart(apply_chart_style(fig_chan), use_container_width=True)
+            # Apply same filters to channels if possible
+            if not df_chan.empty:
+                if "All" not in sel_ga_countries and sel_ga_countries:
+                    df_chan = df_chan[df_chan['country'].isin(sel_ga_countries)]
+                if "All" not in sel_ga_cities and sel_ga_cities:
+                    df_chan = df_chan[df_chan['city'].isin(sel_ga_cities)]
+                
+                df_c_grp = df_chan.groupby('channel')['sessions'].sum().reset_index().sort_values('sessions', ascending=False)
+                fig_chan = px.bar(df_c_grp, x="sessions", y="channel", orientation='h', title="Sessions by Channel Group", color="sessions")
+                st.plotly_chart(apply_chart_style(fig_chan), use_container_width=True)
+            else: st.info("No channel data.")
 
         st.divider()
 
@@ -538,9 +562,15 @@ with tabs[2]:
         st.markdown("### **3. Traffic by Country**")
         if "countries" in ga4:
             df_geo = pd.DataFrame(ga4["countries"])
-            df_g = df_geo.sort_values("users", ascending=False).head(10)
-            fig_geo = px.pie(df_g, values="users", names="country", hole=0.4, title="User Distribution by Country")
-            st.plotly_chart(apply_chart_style(fig_geo), use_container_width=True)
+            # Apply filter to the pie chart source too
+            if not df_geo.empty:
+                if "All" not in sel_ga_countries and sel_ga_countries:
+                    df_geo = df_geo[df_geo['country'].isin(sel_ga_countries)]
+                df_g = df_geo.sort_values("users", ascending=False).head(10)
+                if not df_g.empty:
+                    fig_geo = px.pie(df_g, values="users", names="country", hole=0.4, title="User Distribution by Country")
+                    st.plotly_chart(apply_chart_style(fig_geo), use_container_width=True)
+                else: st.info("No geo data for selection.")
 
         st.divider()
 
@@ -548,20 +578,27 @@ with tabs[2]:
         st.markdown("### **4. Key Events Behaviour Breakdown**")
         if "events" in ga4:
             df_events = pd.DataFrame(ga4["events"])
-            df_e_grp = df_events.groupby('event')['count'].sum().reset_index().sort_values('count', ascending=False).head(15)
-            fig_events = px.bar(df_e_grp, x="count", y="event", orientation='h', title="Key Events Breakdown", color="count")
-            st.plotly_chart(apply_chart_style(fig_events), use_container_width=True)
+            if not df_events.empty:
+                if "All" not in sel_ga_countries and sel_ga_countries:
+                    df_events = df_events[df_events['country'].isin(sel_ga_countries)]
+                if "All" not in sel_ga_cities and sel_ga_cities:
+                    df_events = df_events[df_events['city'].isin(sel_ga_cities)]
+                
+                df_e_grp = df_events.groupby('event')['count'].sum().reset_index().sort_values('count', ascending=False).head(15)
+                fig_events = px.bar(df_e_grp, x="count", y="event", orientation='h', title="Key Events Breakdown", color="count")
+                st.plotly_chart(apply_chart_style(fig_events), use_container_width=True)
 
         st.divider()
 
         # 5. Key Events Trend
         st.markdown("### **5. Key Events Trend**")
-        if df_daily_grp is not None and not df_daily_grp.empty:
+        df_daily_grp = df_daily.groupby('Date').sum().reset_index().sort_values('Date')
+        if not df_daily_grp.empty:
             if len(df_daily_grp) >= 7:
                 df_daily_grp["Smooth Events"] = df_daily_grp["Key Events"].rolling(window=7, min_periods=1).mean()
                 fig_key = px.area(df_daily_grp, x="Date", y="Smooth Events", 
                                 title="Key Events Trend (7-Day Moving Avg)",
-                                color_discrete_sequence=["#2dd4bf"]) # Teal
+                                color_discrete_sequence=["#2dd4bf"])
                 fig_key.update_traces(line=dict(width=4, shape='spline'), fillcolor='rgba(45, 212, 191, 0.2)')
             else:
                 fig_key = px.area(df_daily_grp, x="Date", y="Key Events", title="Daily Key Events Trend", color_discrete_sequence=["#2dd4bf"])
@@ -615,23 +652,27 @@ with tabs[3]:
         if not df_pages_raw.empty and 'keys' in df_pages_raw.columns:
             df_pages_raw['Page'] = df_pages_raw['keys'].apply(lambda x: safe_key(x, 0))
             df_pages_raw['Country_Code'] = df_pages_raw['keys'].apply(lambda x: safe_key(x, 1))
-
-        all_gsc_countries = sorted(df_trend_raw['Country_Code'].unique()) if 'Country_Code' in df_trend_raw.columns else []
-        selected_gsc_countries = st.multiselect("Filter by Country", all_gsc_countries, default=all_gsc_countries[:5] if len(all_gsc_countries) > 5 else all_gsc_countries, key="gsc_country_filt")
         
-        df_t_filt = df_trend_raw[df_trend_raw['Country_Code'].isin(selected_gsc_countries)].copy() if selected_gsc_countries else df_trend_raw.copy()
-        df_t_grp = df_t_filt.groupby('Date').agg({'clicks': 'sum', 'impressions': 'sum', 'ctr': 'mean', 'position': 'mean'}).reset_index().sort_values('Date')
+        # --- SEO GEO FILTER ---
+        with st.expander("🌍 Geo Filters (GSC)", expanded=False):
+            all_gsc_countries = sorted(df_trend_raw['Country_Code'].unique()) if 'Country_Code' in df_trend_raw.columns else []
+            sel_gsc_countries = st.multiselect("Filter SEO by Country", ["All"] + all_gsc_countries, default="All", key="gsc_c_filt")
+            st.info("💡 City-level data is not supported by Google Search Console API.")
 
-        # 1. Performance KPIs
-        st.markdown("### **1. Performance KPI's**")
-        total_clicks = df_t_grp['clicks'].sum()
-        total_impr = df_t_grp['impressions'].sum()
-        avg_ctr = (total_clicks / total_impr * 100) if total_impr > 0 else 0
-        avg_pos = df_t_grp['position'].mean()
+        df_trend = df_trend_raw.copy()
+        if "All" not in sel_gsc_countries and sel_gsc_countries:
+            df_trend = df_trend[df_trend['Country_Code'].isin(sel_gsc_countries)]
+            
+        # 1. Performance Overview
+        st.markdown("### **1. SEO Performance Overview**")
+        t_clicks = df_trend['clicks'].sum()
+        t_impr = df_trend['impressions'].sum()
+        avg_ctr = (t_clicks / t_impr * 100) if t_impr > 0 else 0
+        avg_pos = df_trend['position'].mean()
         
         k_cols = st.columns(4)
-        with k_cols[0]: okr_scorecard("Total Clicks", f"{total_clicks:,}")
-        with k_cols[1]: okr_scorecard("Impressions", f"{total_impr:,}")
+        with k_cols[0]: okr_scorecard("Total Clicks", f"{t_clicks:,}")
+        with k_cols[1]: okr_scorecard("Total Impressions", f"{t_impr:,}")
         with k_cols[2]: okr_scorecard("Avg. CTR", f"{avg_ctr:.2f}%")
         with k_cols[3]: okr_scorecard("Avg. Position", f"{avg_pos:.1f}", color="#8b5cfc")
 
@@ -639,6 +680,7 @@ with tabs[3]:
 
         # 2. Performance Trend
         st.markdown("### **2. SEO Performance**")
+        df_t_grp = df_trend.groupby('Date').agg({'clicks': 'sum', 'impressions': 'sum', 'ctr': 'mean', 'position': 'mean'}).reset_index().sort_values('Date')
         fig_p = go.Figure()
         fig_p.add_trace(go.Scatter(x=df_t_grp['Date'], y=df_t_grp['clicks'], name="Clicks", line=dict(color=accent, width=3), fill='tozeroy'))
         fig_p.add_trace(go.Scatter(x=df_t_grp['Date'], y=df_t_grp['impressions'], name="Impressions", yaxis="y2", line=dict(color="#8b5cfc", width=2, dash='dot')))
@@ -652,10 +694,17 @@ with tabs[3]:
 
         # 3. Golden Opportunity Matrix — Keyword Rankings
         st.markdown("### **3. Golden Opportunity Matrix — Keyword Rankings**")
-        df_q_grp = pd.DataFrame()
-        if not df_query_raw.empty and 'Query' in df_query_raw.columns:
-            df_q_filt = df_query_raw[df_query_raw['Country_Code'].isin(selected_gsc_countries)] if selected_gsc_countries else df_query_raw
-            df_q_grp = df_q_filt.groupby('Query').agg({'clicks':'sum', 'impressions':'sum', 'position':'mean'}).reset_index()
+        # Re-fetch and process df_queries_raw to ensure it's fresh and filtered
+        df_queries_raw_local = pd.DataFrame(gsc.get("queries", []))
+        if not df_queries_raw_local.empty:
+            df_queries_raw_local['Query'] = df_queries_raw_local['keys'].apply(lambda x: safe_key(x, 0))
+            df_queries_raw_local['Country_Code'] = df_queries_raw_local['keys'].apply(lambda x: safe_key(x, 1))
+            
+            df_q_filt = df_queries_raw_local.copy()
+            if "All" not in sel_gsc_countries and sel_gsc_countries:
+                df_q_filt = df_q_filt[df_q_filt['Country_Code'].isin(sel_gsc_countries)]
+            
+            df_q_grp = df_q_filt.groupby('Query').agg({'clicks': 'sum', 'impressions': 'sum', 'position': 'mean'}).reset_index()
             if not df_q_grp.empty:
                 df_q_grp['CTR'] = (df_q_grp['clicks'] / df_q_grp['impressions'] * 100).fillna(0)
                 df_q_grp['Zone'] = df_q_grp['position'].apply(lambda p: 'Top Ranking' if p < 5 else ('High Opportunity' if 5 <= p <= 15 else 'Monitoring'))
@@ -690,9 +739,19 @@ with tabs[3]:
 
         # 4. Content Performance — Clicks vs CTR
         st.markdown("### **4. Content Performance — Clicks vs CTR**")
-        if not df_pages_raw.empty and 'Page' in df_pages_raw.columns:
-            df_p_filt = df_pages_raw[df_pages_raw['Country_Code'].isin(selected_gsc_countries)] if selected_gsc_countries else df_pages_raw
-            df_p_grp = df_p_filt.groupby('Page').agg({'clicks':'sum', 'ctr':'mean'}).reset_index().sort_values('clicks', ascending=False).head(10)
+        # Re-fetch and process df_pages_raw to ensure it's fresh and filtered
+        df_pages_raw_local = pd.DataFrame(gsc.get("pages", []))
+        if not df_pages_raw_local.empty:
+            df_pages_raw_local['Page'] = df_pages_raw_local['keys'].apply(lambda x: safe_key(x, 0))
+            df_pages_raw_local['Country_Code'] = df_pages_raw_local['keys'].apply(lambda x: safe_key(x, 1))
+            
+            df_p_filt = df_pages_raw_local.copy()
+            if "All" not in sel_gsc_countries and sel_gsc_countries:
+                df_p_filt = df_p_filt[df_p_filt['Country_Code'].isin(sel_gsc_countries)]
+                
+            df_p_grp = df_p_filt.groupby('Page').agg({'clicks': 'sum', 'impressions': 'sum', 'ctr': 'mean', 'position': 'mean'}).reset_index()
+            df_p_grp['ctr'] = df_p_grp['ctr'] * 100
+            df_p_grp = df_p_grp.sort_values('clicks', ascending=False).head(10)
             
             fig_bar = go.Figure()
             fig_bar.add_trace(go.Bar(
