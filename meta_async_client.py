@@ -59,8 +59,10 @@ class MetaAsyncClient:
         # Cache key includes breakdown to support different views
         cache_key = f"{start_date}_{end_date}_{breakdown}"
         if self._campaigns_cache is not None and hasattr(self, '_cache_key') and self._cache_key == cache_key:
+            print(f"DEBUG: Returning cached Meta campaigns for {cache_key}")
             return self._campaigns_cache
         
+        print(f"DEBUG: Fetching Meta Campaigns - Start: {start_date}, End: {end_date}, Breakdown: {breakdown}")
         session = await self.get_session()
         
         # Meta Ads API endpoint
@@ -110,6 +112,7 @@ class MetaAsyncClient:
                         break
                     
                     all_data.extend(campaigns)
+                    print(f"DEBUG: Fetched {len(campaigns)} Meta records (Total so far: {len(all_data)})")
                     
                     # Check for pagination
                     paging = data.get('paging', {})
@@ -260,15 +263,20 @@ async def fetch_meta_data(start_date: str, end_date: str, breakdown: Optional[st
         meta_client.fetch_campaigns_daily(start_date, end_date)
     )
     
-    # Calculate totals
-    total_spend = sum(c['Amount spent'] for c in campaigns)
-    total_leads = sum(c['Results'] for c in campaigns)
-    total_impressions = sum(int(c['Impressions'] or 0) for c in campaigns)
-    total_clicks = sum(int(c['Clicks'] or 0) for c in campaigns)
+    campaign_results = campaigns if isinstance(campaigns, list) else []
+    daily_results = daily if isinstance(daily, list) else []
+    
+    # Calculate totals with safety defaults
+    total_spend = sum(c.get('Amount spent', 0) for c in campaign_results)
+    total_leads = sum(c.get('Results', 0) for c in campaign_results)
+    total_impressions = sum(int(c.get('Impressions', 0)) for c in campaign_results)
+    total_clicks = sum(int(c.get('Clicks', 0)) for c in campaign_results)
+    
+    print(f"DEBUG: Meta Summary - Campaigns: {len(campaign_results)}, Daily: {len(daily_results)}, Leads: {total_leads}")
     
     return {
-        'campaigns': campaigns,
-        'daily': daily,
+        'campaigns': campaign_results,
+        'daily': daily_results,
         'summary': {
             'total_spend': total_spend,
             'total_leads': total_leads,
@@ -276,7 +284,7 @@ async def fetch_meta_data(start_date: str, end_date: str, breakdown: Optional[st
             'total_clicks': total_clicks,
             'avg_ctr': (total_clicks / total_impressions * 100) if total_impressions > 0 else 0,
             'cpl': (total_spend / total_leads) if total_leads > 0 else 0,
-            'campaign_count': len(campaigns)
+            'campaign_count': len(campaign_results)
         },
         'fetched_at': datetime.now().isoformat()
     }
