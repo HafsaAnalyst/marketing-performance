@@ -453,7 +453,7 @@ class GHLAsyncClient:
         )
         
         # Merge opportunities so we have names/values for metrics
-        merged_opps = merge_opportunity_data(opportunities_raw, pipelines, users)
+        merged_opps = merge_opportunity_data(opportunities_raw, pipelines, users, contacts_raw)
         
         # Now fetch consultant pulse (Today/Weekly)
         consultant_pulse = await self.fetch_consultant_pulse(opportunities=merged_opps)
@@ -580,13 +580,13 @@ def merge_contact_data(
             "source": c.get("source"),
             "assigned_to": user_map.get(c.get("assignedTo"), "Unassigned") if c.get("assignedTo") else "Unassigned",
             # Opportunity data
-            "opportunity_id": opp.get("id"),
-            "opportunity_name": opp.get("name"),
-            "opportunity_status": opp.get("status"),
-            "opportunity_value": opp.get("monetaryValue", 0),
-            "pipeline": pipeline_map.get(p_id, "Unknown") if p_id else None,
-            "stage": stage_map.get(s_id, "Unknown") if s_id else None,
-            "opportunity_created": opp.get("createdAt", "")[:10] if opp.get("createdAt") else None,
+            "opportunity_id": opp.get("opportunity_id", opp.get("id")),
+            "opportunity_name": opp.get("opportunity_name", opp.get("name")),
+            "opportunity_status": opp.get("status", opp.get("opportunity_status")),
+            "opportunity_value": opp.get("value", opp.get("monetaryValue", 0)),
+            "pipeline": opp.get("pipeline", pipeline_map.get(p_id, "Unknown") if p_id else None),
+            "stage": opp.get("stage", stage_map.get(s_id, "Unknown") if s_id else None),
+            "opportunity_created": opp.get("created_date") or (opp.get("createdAt", "")[:10] if opp.get("createdAt") else None),
             # Appointment data
             "appointment_date": appt.get("startTime", "")[:10] if appt else None,
             "appointment_time": appt.get("startTime", "") if appt else None,
@@ -606,25 +606,35 @@ def merge_contact_data(
 def merge_opportunity_data(
     opportunities: List[Dict],
     pipelines: List[Dict],
-    users: List[Dict]
+    users: List[Dict],
+    contacts: List[Dict] = []
 ) -> List[Dict]:
-    """Merge opportunity data with pipeline stages and users"""
+    """Merge opportunity data with pipeline stages, users, and contact details"""
     
     stage_map = build_stage_map(pipelines)
     user_map = build_user_map(users)
     pipeline_map = build_pipeline_map(pipelines)
     
+    # Create map of contacts for faster geo lookups
+    contact_map = {c.get("id"): c for c in contacts if c.get("id")}
+    
     merged = []
     for opp in opportunities:
         p_id = opp.get("pipelineId")
         s_id = opp.get("pipelineStageId")
+        contact_id = opp.get("contactId")
         
         stage_name = stage_map.get(s_id, "Unknown")
-        
         contact = opp.get("contact", {})
+        
+        # Get extended contact
+        ext_contact = contact_map.get(contact_id, {})
+        city = ext_contact.get("city") or contact.get("city")
+        country = ext_contact.get("country") or contact.get("country")
         
         merged.append({
             "opportunity_id": opp.get("id"),
+            "contactId": contact_id,
             "opportunity_name": opp.get("name"),
             "contact_name": contact.get("name"),
             "contact_email": contact.get("email"),
@@ -636,6 +646,9 @@ def merge_opportunity_data(
             "owner": user_map.get(opp.get("assignedTo"), "Unassigned"),
             "tags": ", ".join(opp.get("tags", [])),
             "source": opp.get("source"),
+            "city": city,
+            "country": country,
+            "country_lowercase": str(country).lower() if country else None,
             "created_date": opp.get("createdAt", "")[:10] if opp.get("createdAt") else None,
             "Created On (AEDT)": convert_to_aedt(opp.get("createdAt")),
             "updated_date": opp.get("updatedAt", "")[:10] if opp.get("updatedAt") else None,
