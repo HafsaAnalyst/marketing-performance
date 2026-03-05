@@ -68,6 +68,7 @@ class GHLAsyncClient:
         self._pipelines_cache: Optional[List[Dict]] = None
         self._users_cache: Optional[List[Dict]] = None
         self._consultants_cache: Optional[List[Dict]] = None
+        self._calendars_cache: Optional[List[Dict]] = None
         self._last_fetch: Optional[datetime] = None
     
     async def get_session(self) -> aiohttp.ClientSession:
@@ -227,6 +228,29 @@ class GHLAsyncClient:
             return payments
         except:
             return []
+            
+    async def fetch_all_calendars(self) -> List[Dict]:
+        """Fetch ALL calendars for the location"""
+        if self._calendars_cache is not None:
+            return self._calendars_cache
+        
+        url = f"{BASE_URL}/calendars/"
+        params = {"locationId": GHL_LOCATION_ID}
+        
+        try:
+            # Calendar API often returns list in "calendars"
+            session = await self.get_session()
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    self._calendars_cache = data.get("calendars", [])
+                else:
+                    self._calendars_cache = []
+        except Exception as e:
+            print(f"Error fetching calendars: {e}")
+            self._calendars_cache = []
+            
+        return self._calendars_cache
     
     # ==================== MAIN FETCH METHODS ====================
     
@@ -323,17 +347,23 @@ class GHLAsyncClient:
                     break
             return cal_events
 
-        # Fetch for all consultants in parallel
-        tasks = [fetch_for_calendar(cal_id, name) for cal_id, name in CONSULTANTS.items()]
-        results = await asyncio.gather(*tasks)
+        # Dynamically discover all calendars
+        all_calendars = await self.fetch_all_calendars()
         
-        all_events = []
-        for r in results:
-            all_events.extend(r)
+        # Merge hardcoded names with dynamically fetched ones
+        discovery_map = {c.get("id"): c.get("name") for c in all_calendars if c.get("id")}
+        discovery_map.update(CONSULTANTS) # Hardcoded ones might have better display names
         
-        self._appointments_cache = all_events
+        all_tasks = [fetch_for_calendar(cal_id, name) for cal_id, name in discovery_map.items()]
+        all_results = await asyncio.gather(*all_tasks)
+        
+        merged_events = []
+        for res in all_results:
+            merged_events.extend(res)
+            
+        self._appointments_cache = merged_events
         self._last_fetch = datetime.now()
-        return all_events
+        return merged_events
             
     
     async def fetch_pipelines(self) -> List[Dict]:
@@ -394,7 +424,12 @@ class GHLAsyncClient:
             for p in payments:
                 cid = p.get("contactId")
                 if cid:
-                    payment_map[cid] = payment_map.get(cid, 0) + float(p.get("amount", 0))
+                    # GHL V2 transactions usually have totalAmount (in cents?)
+                    # Let's assume it's in currency units for now, or check for 'amount'
+                    val = float(p.get("totalAmount", p.get("amount", 0)))
+                    # If it's clearly cents (very large), we might need to divide by 100
+                    # but usually, the API returns the numeric value.
+                    payment_map[cid] = payment_map.get(cid, 0) + val
 
         # Helper for country from phone
         def get_country_from_phone(phone):
@@ -418,20 +453,24 @@ class GHLAsyncClient:
             # Filter events for this consultant
             cal_events = [e for e in all_events if e.get("calendarId") == cal_id]
             
-            # Count statuses
-            confirmed = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() == "confirmed")
+            # GHL V2 Statuses: confirmed, showed, noshow, cancelled, booked, new
+            confirmed = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["confirmed"])
             show = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["showed", "show"])
             no_show = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["noshow", "no-show", "no show"])
-            unconfirmed = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["new", "unconfirmed", ""])
+            unconfirmed = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["new", "unconfirmed", "booked"])
             
             # Map countries and sum payments
-            unique_cids = set(e.get("contactId") for e in cal_events if e.get("contactId"))
+            unique_cids = list(set(e.get("contactId") for e in cal_events if e.get("contactId")))
             total_paid = sum(payment_map.get(cid, 0) for cid in unique_cids)
             countries = set()
             for cid in unique_cids:
                 contact = contact_map.get(cid, {})
                 phone = contact.get("phone")
                 countries.add(get_country_from_phone(phone))
+            
+            # Smart Country: prioritize first non-Other or join them
+            country_list = [c for c in countries if c != "Other"]
+            final_country = ", ".join(sorted(country_list)) if country_list else "Other"
 
             consultant_results.append({
                 "consultant_name": name,
@@ -442,7 +481,7 @@ class GHLAsyncClient:
                 "show": show,
                 "no_show": no_show,
                 "unconfirmed": unconfirmed,
-                "country": ", ".join(sorted(list(countries))) if countries else "Other",
+                "country": final_country,
                 "busy_slots": len(cal_events),
                 "empty_spaces": max(0, 14 - len(cal_events)),
                 "max_capacity": 14,
