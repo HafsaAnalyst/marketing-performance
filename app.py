@@ -1075,7 +1075,7 @@ with tabs[6]:
     st.divider()
 
     # --- WEEKLY SECTION ---
-    st.markdown("### **📆 Weekly Consultant Capacity (Last 7 Days)**")
+    st.markdown("### **📆 Weekly Consultant Capacity (Last 7 Rolling Days)**")
     
     # User requested print statements for tracking this window
     print(f"\n[CONSULTANT TRACKER] Weekly Window: Rolling 7 Days")
