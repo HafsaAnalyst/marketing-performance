@@ -202,8 +202,19 @@ def load_all_intelligence(start_date, end_date):
         services = ["GHL", "Meta", "GA4", "Search Console"]
         for i, res in enumerate(results):
             if isinstance(res, Exception):
-                st.warning(f"⚠️ {services[i]} Sync limited: {str(res)}")
-                processed.append({}) # Provide empty dict for failed service
+                # Special handling for Meta Ads if country breakdown fails
+                if services[i] == "Meta" and "country" in str(res).lower():
+                    st.warning(f"⚠️ Meta Ads Sync limited: Country breakdown failed. Retrying without breakdown.")
+                    try:
+                        # Attempt to refetch Meta data without country breakdown
+                        meta_fallback_data = loop.run_until_complete(fetch_meta_data(start_str, end_str, breakdown=None))
+                        processed.append(meta_fallback_data)
+                    except Exception as fallback_e:
+                        st.warning(f"⚠️ Meta Ads Sync limited: Fallback without breakdown also failed: {str(fallback_e)}")
+                        processed.append({}) # Provide empty dict for failed service
+                else:
+                    st.warning(f"⚠️ {services[i]} Sync limited: {str(res)}")
+                    processed.append({}) # Provide empty dict for failed service
             else:
                 processed.append(res)
                 
@@ -258,11 +269,16 @@ def style_df(df, bold=False):
         return df.style.set_properties(**props)
     return df
 
-tabs = st.tabs([
+# --- NAVIGATION ---
+tab_titles = [
     "🎯 Our Vision", "📊 Ads & Creatives", "📈 Traffic Behavior", 
     "🔍 SEO Performance", "💼 Pipeline Analysis", "👥 Attribution Analysis", "👨‍🏫 Consultant Capacity"
-])
+]
 
+# Persistent Tab Selection
+# We use st.tabs with a key, which Streamlit uses to remember selection across reruns
+tabs = st.tabs(tab_titles)
+    
 STAGE_ORDER = [
     "New Lead", "Qualifier", "Pre Sales (1)", "Pre Sales (2)",
     "Booking Link Shared", "Appointment Booked", "Post Consultation",
@@ -341,15 +357,18 @@ with tabs[1]:
     
     if not df_agg_raw.empty:
         # --- TOP CONTROL BAR ---
-        all_meta_countries = sorted(df_agg_raw['Country'].unique())
+        all_meta_countries = sorted(df_agg_raw['Country'].unique()) if 'Country' in df_agg_raw.columns else []
         ctrl_c1, ctrl_c2 = st.columns([3, 1])
         with ctrl_c1:
-            selected_meta_countries = st.multiselect("Filter by Country", all_meta_countries, default=all_meta_countries[:3] if len(all_meta_countries) > 3 else all_meta_countries, key="meta_country_filt")
+            selected_meta_countries = st.multiselect("Filter by Country", all_meta_countries, default=all_meta_countries[:3] if len(all_meta_countries) > 3 else all_meta_countries, key="meta_country_filt") if all_meta_countries else []
         with ctrl_c2:
             meta_comparison_mode = st.toggle("Side-by-Side Comparison", key="meta_comp_toggle")
 
-        df_agg_filt = df_agg_raw[df_agg_raw['Country'].isin(selected_meta_countries)].copy() if selected_meta_countries else df_agg_raw.copy()
-        
+        if selected_meta_countries:
+            df_agg_filt = df_agg_raw[df_agg_raw['Country'].isin(selected_meta_countries)].copy()
+        else:
+            df_agg_filt = df_agg_raw.copy()
+            
         # 1. Performance KPIs
         st.markdown("### **1. Performance KPIs**")
         total_spend = df_agg_filt['Amount spent'].sum()
@@ -387,7 +406,7 @@ with tabs[1]:
         # 3. Video Retention Pipeline
         st.markdown("### **3. Video Retention Pipeline**")
         v_metrics = ['3s Hold', '50% Hook', '95% Hook', 'Thruplays']
-        v_counts = [df_agg_filt[m].sum() for m in v_metrics]
+        v_counts = [df_agg_filt[m].sum() if m in df_agg_filt.columns else 0 for m in v_metrics]
         fig_hook = px.bar(x=v_counts, y=v_metrics, orientation='h', title="General Retention Pipeline (Total Views)")
         st.plotly_chart(apply_chart_style(fig_hook), use_container_width=True)
 
@@ -398,14 +417,16 @@ with tabs[1]:
         with col4_a:
             st.markdown("### **4. Campaign Performance Analysis**")
             fatigue_df = df_agg_filt.copy()
-            fatigue_df = fatigue_df[pd.to_numeric(fatigue_df['Frequency'], errors='coerce') > 0]
-            if not fatigue_df.empty:
-                fig_fatigue = px.scatter(fatigue_df, x="Frequency", y="CTR (link click-through rate)", 
-                                         size="Amount spent", color="Campaign", hover_name="Campaign",
-                                         trendline="ols", trendline_color_override="red",
-                                         title="CTR% vs. Frequency Fatigue")
-                st.plotly_chart(apply_chart_style(fig_fatigue), use_container_width=True)
-            else: st.info("No frequency data.")
+            if 'Frequency' in fatigue_df.columns:
+                fatigue_df = fatigue_df[pd.to_numeric(fatigue_df['Frequency'], errors='coerce') > 0]
+                if not fatigue_df.empty:
+                    fig_fatigue = px.scatter(fatigue_df, x="Frequency", y="CTR (link click-through rate)", 
+                                            size="Amount spent", color="Campaign", hover_name="Campaign",
+                                            trendline="ols", trendline_color_override="red",
+                                            title="CTR% vs. Frequency Fatigue")
+                    st.plotly_chart(apply_chart_style(fig_fatigue), use_container_width=True)
+                else: st.info("No frequency data.")
+            else: st.info("Frequency data column missing.")
         
         with col4_b:
             st.markdown("### **5. Strategic Performance Correlation**")
@@ -451,8 +472,10 @@ with tabs[1]:
         st.markdown("### **8. Conversion Type Breakdown**")
         with st.expander("🔍 View All Conversion Actions", expanded=False):
             all_actions = {}
-            for map_data in df_agg_filt['_actions']:
-                for k, v in map_data.items(): all_actions[k] = all_actions.get(k, 0) + v
+            if '_actions' in df_agg_filt.columns:
+                for map_data in df_agg_filt['_actions']:
+                    if isinstance(map_data, dict):
+                        for k, v in map_data.items(): all_actions[k] = all_actions.get(k, 0) + v
             if all_actions:
                 df_action = pd.DataFrame(list(all_actions.items()), columns=['Conversion Type', 'Count']).sort_values('Count', ascending=False)
                 st.dataframe(df_action, use_container_width=True, hide_index=True)
@@ -460,10 +483,16 @@ with tabs[1]:
 
         st.markdown("### **9. Meta Campaigns**")
         with st.expander("📂 View Detailed Campaigns", expanded=True):
-            st.dataframe(df_agg_filt.drop(columns=['_actions']), use_container_width=True)
+            cols_to_drop = [c for c in ['_actions'] if c in df_agg_filt.columns]
+            st.dataframe(df_agg_filt.drop(columns=cols_to_drop), use_container_width=True)
             st.download_button("📥 Download Report", df_agg_filt.to_csv(index=False).encode('utf-8'), "meta_report.csv")
     else:
         st.info("No Meta Ads campaign data found.")
+        with st.expander("Debug Details"):
+            st.write("Meta Object Status:", "Present" if meta else "Empty")
+            if not meta:
+                st.write("Check Meta Access Token in secrets or meta_async_client.py")
+            st.json(meta)
 
 # --- TAB 2: TRAFFIC BEHAVIOUR ---
 with tabs[2]:
@@ -959,34 +988,34 @@ with tabs[6]:
     </div>
     """, unsafe_allow_html=True)
     
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("#### **📅 Today's Capacity**")
-        if not df_t.empty:
-            fig_t = px.bar(df_t.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
-                           orientation='h', title="Appointments per Consultant (Today)", color="total_appointments", color_continuous_scale="Blues", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
-            st.plotly_chart(apply_chart_style(fig_t), use_container_width=True)
-    
-    with c2:
-        st.markdown("#### **📆 Weekly Capacity**")
-        if not df_w.empty:
-            fig_w = px.bar(df_w.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
-                           orientation='h', title="Appointments per Consultant (Weekly)", color="total_appointments", color_continuous_scale="Greens", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
-            st.plotly_chart(apply_chart_style(fig_w), use_container_width=True)
-
-    st.divider()
-    
-    l1, l2 = st.columns(2)
-    with l1:
+    # --- TODAY'S SECTION ---
+    st.markdown("### **📅 Today's Consultant Capacity**")
+    if not df_t.empty:
+        fig_t = px.bar(df_t.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
+                        orientation='h', title="Appointments per Consultant (Today)", color="total_appointments", color_continuous_scale="Blues", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
+        st.plotly_chart(apply_chart_style(fig_t), use_container_width=True)
+        
         st.markdown("#### **Today's Leaderboard**")
-        if not df_t.empty:
-            cols = ['consultant_name', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed']
-            df_t_disp = df_t[cols].sort_values('total_appointments', ascending=False)
-            st.dataframe(style_df(df_t_disp), use_container_width=True, hide_index=True)
+        cols = ['consultant_name', 'country', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed']
+        available_cols = [c for c in cols if c in df_t.columns]
+        df_t_disp = df_t[available_cols].sort_values('total_appointments', ascending=False)
+        st.dataframe(style_df(df_t_disp), use_container_width=True, hide_index=True)
+    else:
+        st.info("No appointment data for today.")
     
-    with l2:
+    st.divider()
+
+    # --- WEEKLY SECTION ---
+    st.markdown("### **📆 Weekly Consultant Capacity**")
+    if not df_w.empty:
+        fig_w = px.bar(df_w.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
+                        orientation='h', title="Appointments per Consultant (Weekly)", color="total_appointments", color_continuous_scale="Greens", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
+        st.plotly_chart(apply_chart_style(fig_w), use_container_width=True)
+        
         st.markdown("#### **Weekly Leaderboard**")
-        if not df_w.empty:
-            cols = ['consultant_name', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed']
-            df_w_disp = df_w[cols].sort_values('total_appointments', ascending=False)
-            st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
+        cols = ['consultant_name', 'country', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed']
+        available_cols_w = [c for c in cols if c in df_w.columns]
+        df_w_disp = df_w[available_cols_w].sort_values('total_appointments', ascending=False)
+        st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
+    else:
+        st.info("No appointment data for this week.")
