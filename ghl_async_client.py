@@ -292,16 +292,20 @@ class GHLAsyncClient:
     
     async def fetch_all_appointments(self, start_date: str = "2025-11-01", end_date: str = None) -> List[Dict]:
         """Fetch ALL appointments by iterating over all known consultants"""
-        if self._appointments_cache is not None:
-            print(f"Using cached appointments: {len(self._appointments_cache)}")
+        if hasattr(self, "_appt_cache_range") and self._appt_cache_range == (start_date, end_date):
             return self._appointments_cache
         
-        if end_date is None:
-            end_date = datetime.now().strftime("%Y-%m-%d")
+        # Reset cache if range changed
+        self._appt_cache_range = (start_date, end_date)
+        self._appointments_cache = None
         
-        # GHL requires milliseconds for startTime/endTime
-        start_ms = int(datetime.strptime(f"{start_date} 00:00:00", "%Y-%m-%d %H:%M:%S").timestamp() * 1000)
-        end_ms = int(datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S").timestamp() * 1000)
+        # GHL requires milliseconds for startTime/endTime (localized to Sydney)
+        tz = pytz.timezone('Australia/Sydney')
+        start_dt = tz.localize(datetime.strptime(f"{start_date} 00:00:00", "%Y-%m-%d %H:%M:%S"))
+        end_dt = tz.localize(datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S"))
+        
+        start_ms = int(start_dt.timestamp() * 1000)
+        end_ms = int(end_dt.timestamp() * 1000)
 
         session = await self.get_session()
         
@@ -410,7 +414,7 @@ class GHLAsyncClient:
         
         return self._users_cache
     
-    async def fetch_consultant_metrics(self, start_date: str = "2025-11-01", end_date: str = None, opportunities: List[Dict] = None, contacts: List[Dict] = None, payments: List[Dict] = None) -> List[Dict]:
+    async def fetch_consultant_metrics(self, start_date: str, end_date: str, opportunities: List[Dict], contacts: List[Dict], payments: List[Dict], working_days: int = 1) -> List[Dict]:
         """Fetch consultant appointment metrics and cross-reference with opportunities/payments/contacts"""
         # Ensure we have the raw appointments first
         all_events = await self.fetch_all_appointments(start_date, end_date)
@@ -424,11 +428,7 @@ class GHLAsyncClient:
             for p in payments:
                 cid = p.get("contactId")
                 if cid:
-                    # GHL V2 transactions usually have totalAmount (in cents?)
-                    # Let's assume it's in currency units for now, or check for 'amount'
                     val = float(p.get("totalAmount", p.get("amount", 0)))
-                    # If it's clearly cents (very large), we might need to divide by 100
-                    # but usually, the API returns the numeric value.
                     payment_map[cid] = payment_map.get(cid, 0) + val
 
         # Helper for country from phone
@@ -445,10 +445,18 @@ class GHLAsyncClient:
             if p.startswith("44"): return "UK"
             if p.startswith("1"): return "USA/Canada"
             if p.startswith("971"): return "UAE"
+            if p.startswith("234"): return "Nigeria"
+            if p.startswith("60"): return "Malaysia"
+            if p.startswith("65"): return "Singapore"
+            if p.startswith("27"): return "South Africa"
+            if p.startswith("63"): return "Philippines"
             return "Other"
 
         # Now process stats per consultant
         consultant_results = []
+        max_daily = 14
+        total_capacity = max_daily * working_days
+
         for cal_id, name in CONSULTANTS.items():
             # Filter events for this consultant
             cal_events = [e for e in all_events if e.get("calendarId") == cal_id]
@@ -461,14 +469,28 @@ class GHLAsyncClient:
             
             # Map countries and sum payments
             unique_cids = list(set(e.get("contactId") for e in cal_events if e.get("contactId")))
+            
+            # Sum from global transactions (payment_map)
             total_paid = sum(payment_map.get(cid, 0) for cid in unique_cids)
+            
+            # ALSO Sum directly from appointment payment data if available
+            for e in cal_events:
+                pd = e.get("paymentDetails", e.get("payment", {}))
+                if not pd or not isinstance(pd, dict):
+                    pd = e.get("meta", {}).get("payment", {})
+                
+                if isinstance(pd, dict):
+                    apt_paid = pd.get("amountPaid") or pd.get("amount_paid") or pd.get("totalAmount") or pd.get("amount") or 0
+                    try:
+                        total_paid += float(apt_paid)
+                    except: pass
+
             countries = set()
             for cid in unique_cids:
                 contact = contact_map.get(cid, {})
                 phone = contact.get("phone")
                 countries.add(get_country_from_phone(phone))
             
-            # Smart Country: prioritize first non-Other or join them
             country_list = [c for c in countries if c != "Other"]
             final_country = ", ".join(sorted(country_list)) if country_list else "Other"
 
@@ -483,35 +505,50 @@ class GHLAsyncClient:
                 "unconfirmed": unconfirmed,
                 "country": final_country,
                 "busy_slots": len(cal_events),
-                "empty_spaces": max(0, 14 - len(cal_events)),
-                "max_capacity": 14,
+                "empty_spaces": max(0, total_capacity - len(cal_events)),
+                "max_capacity": total_capacity,
                 "events": cal_events
             })
         
         return consultant_results
 
     async def fetch_consultant_pulse(self, opportunities: List[Dict], contacts: List[Dict] = None, payments: List[Dict] = None) -> Dict[str, List[Dict]]:
-        """Fetch Today and Weekly metrics for scoreboard"""
-        today = datetime.now().date()
-        today_str = today.strftime('%Y-%m-%d')
+        """Fetch Today and Weekly metrics for scoreboard with independent range-aware lookups (Sydney Time)"""
+        tz = pytz.timezone('Australia/Sydney')
+        today_dt = datetime.now(tz).date()
+        
+        # Today
+        today_str = today_dt.strftime('%Y-%m-%d')
+        
+        # Weekly (Rolling Last 7 Days as per user request)
+        ws = today_dt - timedelta(days=6)
+        we = today_dt
+        week_start_str = ws.strftime('%Y-%m-%d')
+        week_end_str = we.strftime('%Y-%m-%d')
+        
+        print(f"\n[GHL DEBUG] CONSULTANT PULSE CALCULATION")
+        print(f"--- Today: {today_str}")
+        print(f"--- Weekly Rolling (7D): {week_start_str} to {week_end_str}")
+        
+        # For a true pulse check, fetch payments for the current week period
+        pulse_payments = await self.fetch_payments(week_start_str, today_str)
         
         # 1. Fetch Today
         today_res = await self.fetch_consultant_metrics(
             start_date=today_str, end_date=today_str, 
-            opportunities=opportunities, contacts=contacts, payments=payments
+            opportunities=opportunities, contacts=contacts, payments=pulse_payments,
+            working_days=1
         )
         for dr in today_res: dr['Type'] = 'Today'
-
-        # 2. Fetch Weekly
-        start_of_week = today - timedelta(days=today.weekday()) # Monday
-        end_of_week = start_of_week + timedelta(days=4) # Friday
+        
+        # 2. Fetch Weekly (Last 7 Rolling Days)
         weekly_res = await self.fetch_consultant_metrics(
-            start_date=start_of_week.strftime('%Y-%m-%d'),
-            end_date=end_of_week.strftime('%Y-%m-%d'),
-            opportunities=opportunities, contacts=contacts, payments=payments
+            start_date=week_start_str, end_date=week_end_str,
+            opportunities=opportunities, contacts=contacts, payments=pulse_payments,
+            working_days=7
         )
         for dr in weekly_res: dr['Type'] = 'Weekly'
-
+        
         return {
             "today": today_res,
             "weekly": weekly_res
