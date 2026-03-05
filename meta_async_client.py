@@ -190,13 +190,14 @@ class MetaAsyncClient:
         """Fetch daily campaign insights for trend analysis"""
         session = await self.get_session()
         url = f"{BASE_URL}/{AD_ACCOUNT_ID}/insights"
-        fields = 'date_start,results,impressions,spend'
+        fields = 'date_start,results,impressions,spend,actions'
         
         params = {
             'access_token': ACCESS_TOKEN,
-            'level': 'account', # Account level is enough for daily decay
+            'level': 'account',
             'time_range': json.dumps({'since': start_date, 'until': end_date}),
             'time_increment': 1,
+            'breakdowns': 'country',
             'fields': fields,
             'limit': 500
         }
@@ -227,12 +228,12 @@ class MetaAsyncClient:
             results = sum(float(a['value']) for a in entry.get('actions', [])) # Fallback if results field doesn't work well
             if 'results' in entry:
                 results = float(entry['results'])
-            
             processed.append({
                 'Date': entry.get('date_start'),
                 'Results': results,
                 'Impressions': int(entry.get('impressions', 0)),
                 'Amount spent': float(entry.get('spend', 0)),
+                'Country': entry.get('country', 'Unknown'),
                 'Result Rate Raw': (results / int(entry['impressions'])) if int(entry.get('impressions', 0)) > 0 else 0
             })
         return processed
