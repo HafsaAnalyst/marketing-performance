@@ -144,7 +144,7 @@ class GA4AsyncClient:
         client = self.get_client()
         request = RunReportRequest(
             property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="sessionDefaultChannelGroup"), Dimension(name="country")],
+            dimensions=[Dimension(name="sessionDefaultChannelGroup"), Dimension(name="country"), Dimension(name="city")],
             metrics=[Metric(name="sessions"), Metric(name="activeUsers"), Metric(name="keyEvents")],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
             limit=limit
@@ -155,6 +155,7 @@ class GA4AsyncClient:
             data.append({
                 'channel': row.dimension_values[0].value,
                 'country': row.dimension_values[1].value,
+                'city': row.dimension_values[2].value,
                 'sessions': int(row.metric_values[0].value),
                 'activeUsers': int(row.metric_values[1].value),
                 'conversions': int(row.metric_values[2].value)
@@ -203,7 +204,7 @@ class GA4AsyncClient:
         client = self.get_client()
         request = RunReportRequest(
             property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="eventName"), Dimension(name="country")],
+            dimensions=[Dimension(name="eventName"), Dimension(name="country"), Dimension(name="city")],
             metrics=[Metric(name="eventCount"), Metric(name="totalUsers")],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
             limit=limit
@@ -215,6 +216,7 @@ class GA4AsyncClient:
             data.append({
                 'event': row.dimension_values[0].value,
                 'country': row.dimension_values[1].value,
+                'city': row.dimension_values[2].value,
                 'count': int(row.metric_values[0].value),
                 'users': users
             })
@@ -225,7 +227,7 @@ class GA4AsyncClient:
         client = self.get_client()
         request = RunReportRequest(
             property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="date"), Dimension(name="country")],
+            dimensions=[Dimension(name="date"), Dimension(name="country"), Dimension(name="city")],
             metrics=[Metric(name="activeUsers"), Metric(name="sessions"), Metric(name="keyEvents"), Metric(name="screenPageViews"), Metric(name="bounceRate")],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
         )
@@ -235,6 +237,7 @@ class GA4AsyncClient:
             data.append({
                 'Date': row.dimension_values[0].value,
                 'Country': row.dimension_values[1].value,
+                'City': row.dimension_values[2].value,
                 'Active Users': int(row.metric_values[0].value),
                 'Sessions': int(row.metric_values[1].value),
                 'Key Events': int(row.metric_values[2].value),
