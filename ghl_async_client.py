@@ -208,6 +208,26 @@ class GHLAsyncClient:
         print(f"Fetched {len(all_items)} items in {page_count} pages")
         return all_items
     
+    async def fetch_payments(self, start_date: str, end_date: str) -> List[Dict]:
+        """Fetch ALL payment transactions for the given range"""
+        url = f"{BASE_URL}/payments/transactions"
+        # GHL payment transactions endpoint may use different param names or locationId
+        params = {
+            "locationId": GHL_LOCATION_ID,
+            "limit": 100,
+            # GHL v2 transactions might use startTime/endTime or similar
+            # If start_date/end_date are passed, we'll try to filter
+        }
+        
+        try:
+            payments = await self._fetch_with_pagination(
+                url, params, 
+                data_key="transactions"
+            )
+            return payments
+        except:
+            return []
+    
     # ==================== MAIN FETCH METHODS ====================
     
     async def fetch_all_contacts(self) -> List[Dict]:
@@ -360,22 +380,37 @@ class GHLAsyncClient:
         
         return self._users_cache
     
-    async def fetch_consultant_metrics(self, start_date: str = "2025-11-01", end_date: str = None, opportunities: List[Dict] = None) -> List[Dict]:
-        """Fetch consultant appointment metrics and cross-reference with opportunities"""
+    async def fetch_consultant_metrics(self, start_date: str = "2025-11-01", end_date: str = None, opportunities: List[Dict] = None, contacts: List[Dict] = None, payments: List[Dict] = None) -> List[Dict]:
+        """Fetch consultant appointment metrics and cross-reference with opportunities/payments/contacts"""
         # Ensure we have the raw appointments first
         all_events = await self.fetch_all_appointments(start_date, end_date)
         
-        # Build opportunity stats by consultant name
-        opp_stats = {}
-        if opportunities:
-            for opp in opportunities:
-                owner = opp.get("owner")
-                if owner and owner != "Unassigned":
-                    if owner not in opp_stats:
-                        opp_stats[owner] = {"won_count": 0, "total_value": 0}
-                    if opp.get("status") == "won":
-                        opp_stats[owner]["won_count"] += 1
-                    opp_stats[owner]["total_value"] += float(opp.get("value", 0))
+        # Build contact lookup for phone/country
+        contact_map = {c.get("id"): c for c in (contacts or []) if c.get("id")}
+        
+        # Build payment lookup by contactId
+        payment_map = {}
+        if payments:
+            for p in payments:
+                cid = p.get("contactId")
+                if cid:
+                    payment_map[cid] = payment_map.get(cid, 0) + float(p.get("amount", 0))
+
+        # Helper for country from phone
+        def get_country_from_phone(phone):
+            if not phone: return "Other"
+            p = "".join(filter(str.isdigit, str(phone)))
+            if p.startswith("61"): return "Australia"
+            if p.startswith("91"): return "India"
+            if p.startswith("977"): return "Nepal"
+            if p.startswith("92"): return "Pakistan"
+            if p.startswith("880"): return "Bangladesh"
+            if p.startswith("94"): return "Sri Lanka"
+            if p.startswith("64"): return "New Zealand"
+            if p.startswith("44"): return "UK"
+            if p.startswith("1"): return "USA/Canada"
+            if p.startswith("971"): return "UAE"
+            return "Other"
 
         # Now process stats per consultant
         consultant_results = []
@@ -389,34 +424,43 @@ class GHLAsyncClient:
             no_show = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["noshow", "no-show", "no show"])
             unconfirmed = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["new", "unconfirmed", ""])
             
-            # Extract amount paid if possible, otherwise default 0
-            # Since GHL Events API doesn't expose payment details directly, will sum to 0.
-            amount_paid = 0
+            # Map countries and sum payments
+            unique_cids = set(e.get("contactId") for e in cal_events if e.get("contactId"))
+            total_paid = sum(payment_map.get(cid, 0) for cid in unique_cids)
+            countries = set()
+            for cid in unique_cids:
+                contact = contact_map.get(cid, {})
+                phone = contact.get("phone")
+                countries.add(get_country_from_phone(phone))
 
             consultant_results.append({
                 "consultant_name": name,
                 "calendar_id": cal_id,
                 "total_appointments": len(cal_events),
-                "amount_paid": amount_paid,
+                "amount_paid": total_paid,
                 "confirmed": confirmed,
                 "show": show,
                 "no_show": no_show,
                 "unconfirmed": unconfirmed,
+                "country": ", ".join(sorted(list(countries))) if countries else "Other",
                 "busy_slots": len(cal_events),
                 "empty_spaces": max(0, 14 - len(cal_events)),
                 "max_capacity": 14,
                 "events": cal_events
             })
         
-        self._consultants_cache = consultant_results
         return consultant_results
 
-    async def fetch_consultant_pulse(self, opportunities: List[Dict]) -> Dict[str, List[Dict]]:
+    async def fetch_consultant_pulse(self, opportunities: List[Dict], contacts: List[Dict] = None, payments: List[Dict] = None) -> Dict[str, List[Dict]]:
         """Fetch Today and Weekly metrics for scoreboard"""
-        # 1. Fetch Today
         today = datetime.now().date()
         today_str = today.strftime('%Y-%m-%d')
-        today_res = await self.fetch_consultant_metrics(start_date=today_str, end_date=today_str, opportunities=opportunities)
+        
+        # 1. Fetch Today
+        today_res = await self.fetch_consultant_metrics(
+            start_date=today_str, end_date=today_str, 
+            opportunities=opportunities, contacts=contacts, payments=payments
+        )
         for dr in today_res: dr['Type'] = 'Today'
 
         # 2. Fetch Weekly
@@ -425,7 +469,7 @@ class GHLAsyncClient:
         weekly_res = await self.fetch_consultant_metrics(
             start_date=start_of_week.strftime('%Y-%m-%d'),
             end_date=end_of_week.strftime('%Y-%m-%d'),
-            opportunities=opportunities
+            opportunities=opportunities, contacts=contacts, payments=payments
         )
         for dr in weekly_res: dr['Type'] = 'Weekly'
 
@@ -445,18 +489,34 @@ class GHLAsyncClient:
             end_date = datetime.now().strftime('%Y-%m-%d')
 
         # Fetch core data in parallel
-        contacts_raw, opportunities_raw, pipelines, users = await asyncio.gather(
-            self.fetch_all_contacts(),
-            self.fetch_all_opportunities(),
-            self.fetch_pipelines(),
-            self.fetch_users()
-        )
+        # payments and contacts are optional for basic opp functionality
+        try:
+            results = await asyncio.gather(
+                self.fetch_all_contacts(),
+                self.fetch_all_opportunities(),
+                self.fetch_pipelines(),
+                self.fetch_users(),
+                self.fetch_payments(start_date, end_date),
+                return_exceptions=True
+            )
+            
+            contacts_raw = results[0] if not isinstance(results[0], Exception) else []
+            opportunities_raw = results[1] if not isinstance(results[1], Exception) else []
+            pipelines = results[2] if not isinstance(results[2], Exception) else []
+            users = results[3] if not isinstance(results[3], Exception) else []
+            payments = results[4] if not isinstance(results[4], Exception) else []
+            
+            if isinstance(results[1], Exception):
+                print(f"GHL Opportunities Fetch Error: {results[1]}")
+        except Exception as e:
+            print(f"GHL Global Gather Error: {e}")
+            contacts_raw, opportunities_raw, pipelines, users, payments = [], [], [], [], []
         
         # Merge opportunities so we have names/values for metrics
         merged_opps = merge_opportunity_data(opportunities_raw, pipelines, users, contacts_raw)
         
         # Now fetch consultant pulse (Today/Weekly)
-        consultant_pulse = await self.fetch_consultant_pulse(opportunities=merged_opps)
+        consultant_pulse = await self.fetch_consultant_pulse(opportunities=merged_opps, contacts=contacts_raw, payments=payments)
         
         # appointments for the original range
         appointments = await self.fetch_all_appointments(start_date, end_date)
