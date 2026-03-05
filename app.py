@@ -20,6 +20,8 @@ from ghl_async_client import ghl_client
 from meta_async_client import fetch_meta_data
 from ga4_async_client import fetch_ga4_data
 from gsc_async_client import fetch_gsc_data
+import statsmodels.api as sm
+import pytz
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -179,7 +181,7 @@ def load_all_intelligence(start_date, end_date):
     # Convert dates to strings for API compatibility
     start_str = start_date.strftime('%Y-%m-%d')
     end_str = end_date.strftime('%Y-%m-%d')
-
+    print(f"LOADER DEBUG: Requesting data for range {start_str} to {end_str}")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -365,6 +367,13 @@ with tabs[1]:
             meta_comparison_mode = st.toggle("Side-by-Side Comparison", key="meta_comp_toggle")
 
         df_agg_filt = df_agg_raw[df_agg_raw['Country'].isin(selected_meta_countries)].copy() if selected_meta_countries else df_agg_raw.copy()
+        
+        # Robustness: If filtered data is empty but raw data is not, fallback to all (prevents disappearance on date change)
+        if df_agg_filt.empty and not df_agg_raw.empty:
+            df_agg_filt = df_agg_raw.copy()
+        
+        if df_agg_filt.empty:
+            st.info(f"No Meta data matches the selected Country filter: {selected_meta_countries}")
             
         def render_meta_content(df_f, df_daily_f, title_prefix=""):
             # 1. Performance KPIs
@@ -409,21 +418,20 @@ with tabs[1]:
 
             st.divider()
 
-            # 4. Performance Analysis
+            # 4. Campaign Performance Analysis
             st.markdown(f"### {title_prefix} **4. Campaign Performance Analysis**")
             if 'Frequency' in df_f.columns:
                 df_fat = df_f.copy()
                 df_fat['Frequency'] = pd.to_numeric(df_fat['Frequency'], errors='coerce')
                 df_fat = df_fat[df_fat['Frequency'] > 0]
-                if not df_fat.empty:
-                    import statsmodels.api as sm
+                if len(df_fat) > 1:
                     fig_fat = px.scatter(df_fat, x="Frequency", y="CTR (link click-through rate)", 
                                         size="Amount spent", color="Campaign", hover_name="Campaign",
                                         trendline="ols", trendline_color_override="red",
                                         title=f"{title_prefix} CTR% vs. Frequency Fatigue")
                     st.plotly_chart(apply_chart_style(fig_fat), use_container_width=True)
                 else:
-                    st.info("Insufficient frequency data for fatigue analysis.")
+                    st.info("Insufficient data points (min 2) for frequency fatigue trendline analysis.")
 
             st.divider()
 
@@ -438,42 +446,8 @@ with tabs[1]:
 
             st.divider()
 
-            # 6. Engagement-to-Conversion Decay
-            st.markdown(f"### {title_prefix} **6. Engagement-to-Conversion Decay**")
-            if not df_daily_f.empty:
-                df_d = df_daily_f.copy()
-                df_d['Date_DT'] = pd.to_datetime(df_d['Date'])
-                if df_d['Date_DT'].nunique() > 14:
-                    min_d = df_d['Date_DT'].min()
-                    c1_d = df_d[df_d['Date_DT'] < min_d + timedelta(days=7)]
-                    c2_d = df_d[df_d['Date_DT'] > min_d + timedelta(days=14)]
-                    
-                    if not c1_d.empty and not c2_d.empty:
-                        if 'Result Rate Raw' in df_d.columns:
-                            rr1 = c1_d['Result Rate Raw'].mean() * 100
-                            rr2 = c2_d['Result Rate Raw'].mean() * 100
-                        else:
-                            rr1 = (c1_d['Results'].sum() / c1_d['Impressions'].sum() * 100) if c1_d['Impressions'].sum() > 0 else 0
-                            rr2 = (c2_d['Results'].sum() / c2_d['Impressions'].sum() * 100) if c2_d['Impressions'].sum() > 0 else 0
-                        
-                        # Handle NaNs
-                        rr1 = 0 if pd.isna(rr1) else rr1
-                        rr2 = 0 if pd.isna(rr2) else rr2
-                        
-                        d1, d2 = st.columns(2)
-                        with d1: okr_scorecard("Result Rate (D1-7)", f"{rr1:.2f}%")
-                        with d2: okr_scorecard("Result Rate (D14-21)", f"{rr2:.2f}%", delta=f"{rr2-rr1:.2f}%")
-                    else:
-                        st.info("Insufficient metrics in the 7-day windows for decay analysis.")
-                else:
-                    st.info("Min 14 days required for decay analysis.")
-            else:
-                st.info("No daily time-series data found.")
-
-            st.divider()
-
-            # 7. Landing Page Health
-            st.markdown(f"### {title_prefix} **7. Landing Page Health**")
+            # 6. Landing Page Health
+            st.markdown(f"### {title_prefix} **6. Landing Page Health**")
             t_lp = df_f['Landing page views'].sum() if 'Landing page views' in df_f.columns else 0
             drop_off = (1 - t_lp / t_links) * 100 if t_links > 0 else 0
             l_col1, l_col2 = st.columns([1, 2])
@@ -485,8 +459,8 @@ with tabs[1]:
 
             st.divider()
 
-            # 8. Conversion Type Breakdown
-            st.markdown(f"### {title_prefix} **8. Conversion Type Breakdown**")
+            # 7. Conversion Type Breakdown
+            st.markdown(f"### {title_prefix} **7. Conversion Type Breakdown**")
             with st.expander(f"🔍 View All Conversion Actions ({title_prefix.strip()})", expanded=False):
                 all_actions = {}
                 if '_actions' in df_f.columns:
@@ -500,8 +474,8 @@ with tabs[1]:
 
             st.divider()
 
-            # 9. Meta Campaigns Table
-            st.markdown(f"### {title_prefix} **9. Meta Campaigns**")
+            # 8. Meta Campaigns Table
+            st.markdown(f"### {title_prefix} **8. Meta Campaigns**")
             with st.expander(f"📂 View Detailed Campaigns ({title_prefix.strip()})", expanded=False if title_prefix else True):
                 agg_rules = {
                     'Amount spent': 'sum', 'Results': 'sum', 'Impressions': 'sum', 
@@ -531,7 +505,11 @@ with tabs[1]:
                 dd2 = df_daily_raw[df_daily_raw['Country']==mc2] if 'Country' in df_daily_raw.columns else pd.DataFrame()
                 render_meta_content(df2, dd2, f"📊 {mc2}")
         else:
+            # Fallback for daily data as well
             df_daily_filt = df_daily_raw[df_daily_raw['Country'].isin(selected_meta_countries)] if 'Country' in df_daily_raw.columns and selected_meta_countries else df_daily_raw
+            if df_daily_filt.empty and not df_daily_raw.empty:
+                df_daily_filt = df_daily_raw.copy()
+                
             render_meta_content(df_agg_filt, df_daily_filt)
             
     else:
@@ -1097,13 +1075,21 @@ with tabs[6]:
     st.divider()
 
     # --- WEEKLY SECTION ---
-    st.markdown("### **📆 Weekly Consultant Capacity**")
+    st.markdown("### **📆 Weekly Consultant Capacity (Last 7 Days)**")
+    
+    # User requested print statements for tracking this window
+    print(f"\n[CONSULTANT TRACKER] Weekly Window: Rolling 7 Days")
+    print(f"--- Data Points: {len(df_w)}")
+    if not df_w.empty:
+        top_c = df_w.sort_values('total_appointments', ascending=False).iloc[0]['consultant_name']
+        print(f"--- Peak Performance: {top_c} ({df_w.sort_values('total_appointments', ascending=False).iloc[0]['total_appointments']} appts)")
+
     if not df_w.empty:
         fig_w = px.bar(df_w.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
-                        orientation='h', title="Appointments per Consultant (Weekly)", color="total_appointments", color_continuous_scale="Greens", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
+                        orientation='h', title="Appointments per Consultant (Weekly Rolling 7D)", color="total_appointments", color_continuous_scale="Greens", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
         st.plotly_chart(apply_chart_style(fig_w), use_container_width=True)
         
-        st.markdown("#### **Weekly Leaderboard**")
+        st.markdown("#### **Weekly Leaderboard (Rolling 7D)**")
         cols_w = ['consultant_name', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed', 'country']
         available_cols_w = [c for c in cols_w if c in df_w.columns]
         df_w_disp = df_w[available_cols_w].sort_values('total_appointments', ascending=False)
