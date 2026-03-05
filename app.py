@@ -498,8 +498,8 @@ with tabs[2]:
 
         st.divider()
 
-        # 4. Key Events Behaviour
-        st.markdown("### **4. Key Events Behaviour**")
+        # 4. Key Events Behaviour Breakdown
+        st.markdown("### **4. Key Events Behaviour Breakdown**")
         if "events" in ga4:
             df_events = pd.DataFrame(ga4["events"])
             df_e_grp = df_events.groupby('event')['count'].sum().reset_index().sort_values('count', ascending=False).head(15)
@@ -508,17 +508,40 @@ with tabs[2]:
 
         st.divider()
 
-        # 5. Page Performance Analysis
-        st.markdown("### **5. Page Performance Analysis**")
-        if "topPages" in ga4:
-            df_pages = pd.DataFrame(ga4["topPages"])
-            if not df_pages.empty and 'page' in df_pages.columns:
-                df_pages_sorted = df_pages.sort_values('sessions', ascending=False).head(20)
-                st.dataframe(df_pages_sorted[['page','sessions','users','conversions']].rename(columns={
-                    'page': 'Landing Page', 'sessions': 'Sessions', 'users': 'Users', 'conversions': 'Key Events'
-                }), use_container_width=True, hide_index=True)
+        # 5. Key Events Trend
+        st.markdown("### **5. Key Events Trend**")
+        if df_daily_grp is not None and not df_daily_grp.empty:
+            if len(df_daily_grp) >= 7:
+                df_daily_grp["Smooth Events"] = df_daily_grp["Key Events"].rolling(window=7, min_periods=1).mean()
+                fig_key = px.area(df_daily_grp, x="Date", y="Smooth Events", 
+                                title="Key Events Trend (7-Day Moving Avg)",
+                                color_discrete_sequence=["#2dd4bf"]) # Teal
+                fig_key.update_traces(line=dict(width=4, shape='spline'), fillcolor='rgba(45, 212, 191, 0.2)')
             else:
-                st.info("No page data available.")
+                fig_key = px.area(df_daily_grp, x="Date", y="Key Events", title="Daily Key Events Trend", color_discrete_sequence=["#2dd4bf"])
+            st.plotly_chart(apply_chart_style(fig_key), use_container_width=True)
+
+        st.divider()
+
+        # 6. Page Performance Analysis
+        st.markdown("### **6. Page Performance Analysis**")
+        p1, p2 = st.columns(2)
+        with p1:
+            st.markdown("#### Views by Page title")
+            if "titles" in ga4:
+                df_titles = pd.DataFrame(ga4["titles"])
+                if not df_titles.empty and 'Page Title' in df_titles.columns:
+                    df_t = df_titles.groupby("Page Title").sum().reset_index().sort_values("Views", ascending=False).head(10)
+                    st.dataframe(df_t, use_container_width=True, hide_index=True)
+                else: st.info("No page title data available.")
+        with p2:
+            st.markdown("#### Top 10 Page paths")
+            if "paths" in ga4:
+                df_paths = pd.DataFrame(ga4["paths"])
+                if not df_paths.empty and 'Page Path' in df_paths.columns:
+                    df_p = df_paths.groupby("Page Path").sum().reset_index().sort_values("Views", ascending=False).head(10)
+                    st.dataframe(df_p, use_container_width=True, hide_index=True)
+                else: st.info("No page path data available.")
     else:
         st.warning("⚠️ GA4 Sync limited: 403 Forbidden.")
         st.info("💡 **Resolution:** Add `ga4-monitor@ghldataset.iam.gserviceaccount.com` as a 'Viewer' in Google Analytics Admin -> Property Access Management.")
@@ -569,7 +592,7 @@ with tabs[3]:
         st.divider()
 
         # 2. Performance Trend
-        st.markdown("### **2. Performance**")
+        st.markdown("### **2. SEO Performance**")
         fig_p = go.Figure()
         fig_p.add_trace(go.Scatter(x=df_t_grp['Date'], y=df_t_grp['clicks'], name="Clicks", line=dict(color=accent, width=3), fill='tozeroy'))
         fig_p.add_trace(go.Scatter(x=df_t_grp['Date'], y=df_t_grp['impressions'], name="Impressions", yaxis="y2", line=dict(color="#8b5cfc", width=2, dash='dot')))
@@ -611,7 +634,7 @@ with tabs[3]:
                 fig_mat.update_xaxes(autorange="reversed", showgrid=True, gridcolor="#f1f5f9", gridwidth=0.5, zeroline=False)
                 fig_mat.update_yaxes(showgrid=True, gridcolor="#f1f5f9", gridwidth=0.5, zeroline=False)
                 fig_mat.update_traces(marker=dict(line=dict(width=1, color='white'), opacity=0.8))
-                fig_mat.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(family="Inter, sans-serif", color="#000000"),
+                fig_mat.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(family="Inter, sans-serif", color=text_color),
                                     legend=dict(orientation="h", y=-0.2, x=0.5, xanchor='center'))
                 st.plotly_chart(fig_mat, use_container_width=True)
         else:
@@ -623,9 +646,30 @@ with tabs[3]:
         st.markdown("### **4. Content Performance — Clicks vs CTR**")
         if not df_pages_raw.empty and 'Page' in df_pages_raw.columns:
             df_p_filt = df_pages_raw[df_pages_raw['Country_Code'].isin(selected_gsc_countries)] if selected_gsc_countries else df_pages_raw
-            df_p_grp = df_p_filt.groupby('Page').agg({'clicks':'sum', 'ctr':'mean'}).reset_index().sort_values('clicks', ascending=False).head(15)
-            fig_pages_seo = px.bar(df_p_grp, x="clicks", y="Page", orientation='h', color="clicks", title="Top Pages by Clicks")
-            st.plotly_chart(apply_chart_style(fig_pages_seo), use_container_width=True)
+            df_p_grp = df_p_filt.groupby('Page').agg({'clicks':'sum', 'ctr':'mean'}).reset_index().sort_values('clicks', ascending=False).head(10)
+            
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(
+                y=df_p_grp['Page'], x=df_p_grp['clicks'], orientation='h', name='Clicks',
+                marker=dict(
+                    color=df_p_grp['clicks'],
+                    colorscale=[[0, '#cffafe'], [0.5, '#3b82f6'], [1, '#10b981']],
+                    line=dict(width=0), 
+                    pattern_shape=""
+                ),
+                text=df_p_grp['clicks'], textposition='outside', textfont=dict(weight='bold'),
+                hovertemplate='<b>%{y}</b><br>Clicks: %{x}<extra></extra>'
+            ))
+            
+            fig_bar.update_layout(
+                height=450, showlegend=False,
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=40, t=20, b=20),
+                yaxis=dict(autorange="reversed", showgrid=False),
+                font=dict(family="Inter, sans-serif", color=text_color)
+            )
+            fig_bar.update_traces(marker_line_width=0, marker_pattern_fillmode="replace") 
+            st.plotly_chart(fig_bar, use_container_width=True)
         else:
             st.info("No page performance data available.")
 
@@ -645,31 +689,54 @@ with tabs[3]:
 # --- TAB 4: PIPELINE ANALYSIS ---
 with tabs[4]:
     if not opps.empty:
+        # Define geo filter function helper
+        def apply_geo_filter(df_to_filt):
+            geo_col1, geo_col2 = st.columns([2, 1])
+            with geo_col1:
+                geo_type = st.radio("Group By", ["Country", "City"], horizontal=True, key="p_geo_type")
+                geo_col = 'Country' if geo_type == "Country" else 'City' # Assuming 'Country' and 'City' exist in merged opps/contacts
+                
+                if geo_col in df_to_filt.columns:
+                    geo_options = sorted(df_to_filt[geo_col].dropna().unique())
+                    selected_geo = st.multiselect(f"Select {geo_type}(s)", ["All"] + geo_options, default="All", key="p_geo_val")
+                    if "All" not in selected_geo and selected_geo:
+                        return df_to_filt[df_to_filt[geo_col].isin(selected_geo)]
+            return df_to_filt
+
+        # Ensure numeric Opportunity Value
+        if 'Opportunity Value' in opps.columns:
+            opps['Opportunity Value'] = pd.to_numeric(opps['Opportunity Value'], errors='coerce').fillna(0)
+
+        # Apply logic for Pipeline filter based on geo if columns exist
+        opps_filtered = apply_geo_filter(opps)
+        st.markdown(f"<small>Records: {len(opps_filtered)} opportunities</small>", unsafe_allow_html=True)
+        st.markdown("---")
+
         # 1. Pipeline KPI's
         st.markdown("### **1. Pipeline KPI's**")
-        total_val = opps['Opportunity Value'].sum() if 'Opportunity Value' in opps.columns else 0
+        total_val = opps_filtered['Opportunity Value'].sum() if 'Opportunity Value' in opps_filtered.columns else 0
         l2c_open_count = 0
-        if 'Pipeline' in opps.columns and 'Status' in opps.columns:
-            l2c_open_count = len(opps[(opps['Pipeline'] == 'L2C - Education') & (opps['Status'] == 'open')])
+        if 'Pipeline' in opps_filtered.columns and 'Status' in opps_filtered.columns:
+            l2c_open_count = len(opps_filtered[(opps_filtered['Pipeline'] == 'L2C - Education') & (opps_filtered['Status'] == 'open')])
 
         k_cols = st.columns(3)
-        with k_cols[0]: okr_scorecard("Total Opportunities", f"{len(opps):,}")
+        with k_cols[0]: okr_scorecard("Total Opportunities", f"{len(opps_filtered):,}")
         with k_cols[1]: okr_scorecard("Pipeline Value", f"${total_val:,.0f}", color="#10b981")
         with k_cols[2]: okr_scorecard("L2C Education (Open)", f"{l2c_open_count:,}", color="#8b5cfc")
         
         st.divider()
         
-        # 2. Opportunity Analysis
-        st.markdown("### **2. Opportunity Analysis**")
+        # 2. Owner & Status Analysis
+        st.markdown("### **2. Owner Analysis**")
         col_chart1, col_chart2 = st.columns(2)
         p_colors = {'won': '#10b981', 'open': '#1e3a8a', 'lost': '#94a3b8', 'abandoned': '#64748b'}
         
         with col_chart1:
-            if 'Lead Owner' in opps.columns and 'Status' in opps.columns:
-                owner_counts = opps.groupby('Lead Owner').size().reset_index(name='Total').sort_values('Total', ascending=False)
+            if 'Lead Owner' in opps_filtered.columns and 'Status' in opps_filtered.columns:
+                owner_counts = opps_filtered.groupby('Lead Owner').size().reset_index(name='Total').sort_values('Total', ascending=False)
                 top_15 = owner_counts.head(15)['Lead Owner'].tolist()
                 
-                df_owner = opps.copy()
+                df_owner = opps_filtered.copy()
                 df_owner['Owner Display'] = df_owner['Lead Owner'].apply(lambda x: "".join([n[0] for n in str(x).split()]) if str(x) != 'nan' else 'U')
                 df_owner['Owner Label'] = df_owner['Lead Owner'] + " (" + df_owner['Owner Display'] + ")"
                 
@@ -689,8 +756,8 @@ with tabs[4]:
                 st.plotly_chart(fig_o, use_container_width=True)
         
         with col_chart2:
-            if 'Status' in opps.columns:
-                status_counts = opps.groupby('Status').size().reset_index(name='Count').sort_values('Count', ascending=False)
+            if 'Status' in opps_filtered.columns:
+                status_counts = opps_filtered.groupby('Status').size().reset_index(name='Count').sort_values('Count', ascending=False)
                 total_status = status_counts['Count'].sum()
                 
                 fig_s = px.pie(status_counts, values='Count', names='Status', hole=0.6,
@@ -707,8 +774,8 @@ with tabs[4]:
         
         # 3. Phase-Based Pipeline Funnel
         st.markdown("### **3. Phase-Based Pipeline Funnel (L2C Education)**")
-        if 'Pipeline' in opps.columns and 'Status' in opps.columns:
-            l2c_df = opps[opps['Pipeline'] == 'L2C - Education'].copy()
+        if 'Pipeline' in opps_filtered.columns and 'Status' in opps_filtered.columns:
+            l2c_df = opps_filtered[opps_filtered['Pipeline'] == 'L2C - Education'].copy()
             if not l2c_df.empty:
                 funnel_data = []
                 if 'Stage' in l2c_df.columns:
@@ -757,11 +824,11 @@ with tabs[4]:
         
         # 4. Lead Source Analysis
         st.markdown("### **4. Lead Source Analysis**")
-        if 'Lead Source' in opps.columns and 'Status' in opps.columns:
-            lead_counts = opps.groupby('Lead Source').size().reset_index(name='Total').sort_values('Total', ascending=False)
+        if 'Lead Source' in opps_filtered.columns and 'Status' in opps_filtered.columns:
+            lead_counts = opps_filtered.groupby('Lead Source').size().reset_index(name='Total').sort_values('Total', ascending=False)
             top_12 = lead_counts.head(12)['Lead Source'].tolist()
             
-            df_lead = opps.copy()
+            df_lead = opps_filtered.copy()
             df_lead['Lead Category'] = df_lead['Lead Source'].apply(lambda x: x if x in top_12 else 'Others')
             lead_status = df_lead.groupby(['Lead Category', 'Status']).size().reset_index(name='Count')
             
@@ -781,8 +848,8 @@ with tabs[4]:
         st.divider()
         # 5. Opportunity Pipeline Bubble Chart
         st.markdown("### **5. Opportunity Pipeline Bubble Chart**")
-        if 'Status' in opps.columns and 'Stage Percentage' in opps.columns:
-            open_opps = opps[opps['Status'] == 'open'].copy()
+        if 'Status' in opps_filtered.columns and 'Stage Percentage' in opps_filtered.columns:
+            open_opps = opps_filtered[opps_filtered['Status'] == 'open'].copy()
             if not open_opps.empty and 'Lead Source' in open_opps.columns:
                 bubble_data = open_opps.groupby('Lead Source').agg({'Opportunity Name': 'count', 'Opportunity Value': 'sum', 'Stage Percentage': 'mean'}).reset_index()
                 bubble_data.columns = ['Lead Source', 'Count', 'Value', 'Avg Stage %']
@@ -807,12 +874,30 @@ with tabs[4]:
 # --- TAB 5: ATTRIBUTION ANALYSIS ---
 with tabs[5]:
     if not contacts.empty:
+        # Define geo filter function helper
+        def apply_contact_geo_filter(df_to_filt):
+            c_geo_col1, c_geo_col2 = st.columns([2, 1])
+            with c_geo_col1:
+                geo_type = st.radio("Group By", ["Country", "City"], horizontal=True, key="c_geo_type")
+                geo_col = 'country' if geo_type == "Country" else 'city' # Contacts data usually has lowercase
+                
+                if geo_col in df_to_filt.columns:
+                    geo_options = [str(x) for x in df_to_filt[geo_col].dropna().unique() if str(x).strip()]
+                    selected_geo = st.multiselect(f"Select {geo_type}(s)", ["All"] + sorted(geo_options), default="All", key="c_geo_val")
+                    if "All" not in selected_geo and selected_geo:
+                        return df_to_filt[df_to_filt[geo_col].isin(selected_geo)]
+            return df_to_filt
+
+        contacts_filtered = apply_contact_geo_filter(contacts)
+        st.markdown(f"<small>Records: {len(contacts_filtered)} contacts</small>", unsafe_allow_html=True)
+        st.markdown("---")
+
         st.markdown("### **1. Attribution Analysis (First vs. Latest)**")
-        if 'first_attribution' in contacts.columns and 'latest_attribution' in contacts.columns:
+        if 'first_attribution' in contacts_filtered.columns and 'latest_attribution' in contacts_filtered.columns:
             # Aggregate First vs latest
-            f_counts = contacts['first_attribution'].value_counts().reset_index().head(15)
+            f_counts = contacts_filtered['first_attribution'].value_counts().reset_index().head(15)
             f_counts.columns = ['Source', 'First']
-            l_counts = contacts['latest_attribution'].value_counts().reset_index().head(15)
+            l_counts = contacts_filtered['latest_attribution'].value_counts().reset_index().head(15)
             l_counts.columns = ['Source', 'Latest']
             attr_df = pd.merge(f_counts, l_counts, on='Source', how='outer').fillna(0)
             
@@ -831,8 +916,8 @@ with tabs[5]:
         
         st.divider()
         st.markdown("### **2. Lead Source Summary**")
-        if 'source' in contacts.columns:
-            ls_sum = contacts['source'].value_counts().reset_index().head(20)
+        if 'source' in contacts_filtered.columns:
+            ls_sum = contacts_filtered['source'].value_counts().reset_index().head(20)
             st.dataframe(ls_sum, use_container_width=True, hide_index=True)
     else:
         st.info("No contact data found.")
@@ -847,7 +932,6 @@ with tabs[6]:
     
     t_appts = int(df_t['total_appointments'].sum()) if not df_t.empty else 0
     w_appts = int(df_w['total_appointments'].sum()) if not df_w.empty else 0
-    t_rev = float(df_t['total_value'].sum()) if not df_t.empty else 0
     
     st.markdown(f"""
     <div style='text-align: center; margin-bottom: 2rem;'>
@@ -879,11 +963,13 @@ with tabs[6]:
     with l1:
         st.markdown("#### **Today's Leaderboard**")
         if not df_t.empty:
-            cols = ['consultant_name', 'total_appointments', 'won_count', 'total_value']
-            st.dataframe(df_t[cols].sort_values('total_value', ascending=False), use_container_width=True, hide_index=True)
+            cols = ['consultant_name', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed']
+            df_t_disp = df_t[cols].sort_values('total_appointments', ascending=False)
+            st.dataframe(style_df(df_t_disp), use_container_width=True, hide_index=True)
     
     with l2:
         st.markdown("#### **Weekly Leaderboard**")
         if not df_w.empty:
-            cols = ['consultant_name', 'total_appointments', 'won_count', 'total_value']
-            st.dataframe(df_w[cols].sort_values('total_value', ascending=False), use_container_width=True, hide_index=True)
+            cols = ['consultant_name', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed']
+            df_w_disp = df_w[cols].sort_values('total_appointments', ascending=False)
+            st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
