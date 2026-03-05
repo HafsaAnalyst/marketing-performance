@@ -258,7 +258,11 @@ tabs = st.tabs([
     "🔍 SEO Performance", "💼 Pipeline Analysis", "👥 Attribution Analysis", "👨‍🏫 Consultant Capacity"
 ])
 
-STAGE_ORDER = ["New Lead", "Qualifier", "Pre Sales (1)", "Pre Sales (2)", "Appointment Booked", "Won"]
+STAGE_ORDER = [
+    "New Lead", "Qualifier", "Pre Sales (1)", "Pre Sales (2)",
+    "Booking Link Shared", "Appointment Booked", "Post Consultation",
+    "No Show", "Initial Requested", "Initial Received", "COE Received", "Won"
+]
 
 # --- GHL DATA PROCESSING ---
 ghl = all_data["ghl"]
@@ -287,6 +291,16 @@ if not opps.empty:
         
         if 'created_date' in opps.columns:
             opps['created_date'] = pd.to_datetime(opps['created_date']).dt.date
+            
+        def get_stage_pct(s):
+            try:
+                if s in STAGE_ORDER:
+                    return (STAGE_ORDER.index(s) / (len(STAGE_ORDER) - 1)) * 100
+                return 0
+            except: return 0
+            
+        if 'Stage' in opps.columns:
+            opps['Stage Percentage'] = opps['Stage'].apply(get_stage_pct)
 
 # --- TAB 0: OUR VISION ---
 with tabs[0]:
@@ -453,7 +467,7 @@ with tabs[2]:
         with k_cols[1]: okr_scorecard("Sessions", f"{t_sessions:,}")
         with k_cols[2]: okr_scorecard("Views", f"{t_views:,}")
         with k_cols[3]: okr_scorecard("Key Events", f"{t_events:,}", color="#10b981")
-        with k_cols[4]: okr_scorecard("Bounce Rate", f"{a_bounce:.1f}%", color="#ef4444")
+        with k_cols[4]: okr_scorecard("Bounce Rate", f"{a_bounce*100:.1f}%", color="#ef4444")
 
         st.markdown("#### **User Engagement Trend**")
         df_daily['Date'] = pd.to_datetime(df_daily['Date'])
@@ -500,12 +514,6 @@ with tabs[2]:
             df_pages = pd.DataFrame(ga4["topPages"])
             if not df_pages.empty and 'page' in df_pages.columns:
                 df_pages_sorted = df_pages.sort_values('sessions', ascending=False).head(20)
-                fig_pages_ga = px.bar(
-                    df_pages_sorted, x="sessions", y="page", orientation='h',
-                    title="Top Landing Pages by Sessions", color="sessions",
-                    color_continuous_scale="Blues"
-                )
-                st.plotly_chart(apply_chart_style(fig_pages_ga), use_container_width=True)
                 st.dataframe(df_pages_sorted[['page','sessions','users','conversions']].rename(columns={
                     'page': 'Landing Page', 'sessions': 'Sessions', 'users': 'Users', 'conversions': 'Key Events'
                 }), use_container_width=True, hide_index=True)
@@ -581,12 +589,31 @@ with tabs[3]:
             df_q_grp = df_q_filt.groupby('Query').agg({'clicks':'sum', 'impressions':'sum', 'position':'mean'}).reset_index()
             if not df_q_grp.empty:
                 df_q_grp['CTR'] = (df_q_grp['clicks'] / df_q_grp['impressions'] * 100).fillna(0)
-                plot_df = df_q_grp[df_q_grp['clicks'] > 0].copy()
-                if not plot_df.empty:
-                    fig_mat = px.scatter(plot_df, x="position", y="impressions", size="clicks", color="CTR",
-                                         hover_name="Query", log_y=True, title="Strategic Visibility vs. Rank")
-                    fig_mat.add_vline(x=10, line_dash="dash", line_color="rgba(255,100,100,0.5)", annotation_text="Page 2")
-                    st.plotly_chart(apply_chart_style(fig_mat), use_container_width=True)
+                df_q_grp['Zone'] = df_q_grp['position'].apply(lambda p: 'Top Ranking' if p < 5 else ('High Opportunity' if 5 <= p <= 15 else 'Monitoring'))
+                color_map = {'Top Ranking': '#1e3a8a', 'High Opportunity': '#d97706', 'Monitoring': '#94a3b8'}
+                
+                fig_mat = px.scatter(df_q_grp, x="position", y="impressions", size="clicks", color="Zone", hover_name="Query",
+                                   height=500, color_discrete_map=color_map,
+                                   labels={"position": "Avg Position", "impressions": "Impressions"},
+                                   hover_data={"position": True, "impressions": ':,', "clicks": ':,', "CTR": ':.2f'})
+                
+                fig_mat.add_vrect(x0=0, x1=5, fillcolor="#F0F8FF", opacity=0.15, layer="below", line_width=0)
+                fig_mat.add_vrect(x0=5, x1=15, fillcolor="#F7E7CE", opacity=0.2, layer="below", line_width=0, annotation_text="🎯 OPPORTUNITY ZONE", annotation_position="top left")
+
+                fig_mat.add_annotation(x=2.5, y=df_q_grp['impressions'].max()*0.9 if not df_q_grp.empty else 0, text="<b>MAINTAIN</b>", showarrow=False, font=dict(size=14, color="#cbd5e1"), opacity=0.4)
+                fig_mat.add_annotation(x=10, y=df_q_grp['impressions'].max()*0.9 if not df_q_grp.empty else 0, text="<b>SCALE NOW</b>", showarrow=False, font=dict(size=14, color="#cbd5e1"), opacity=0.4)
+                fig_mat.add_annotation(x=25, y=df_q_grp['impressions'].max()*0.9 if not df_q_grp.empty else 0, text="<b>MONITOR</b>", showarrow=False, font=dict(size=14, color="#cbd5e1"), opacity=0.4)
+
+                top3_opp = df_q_grp[df_q_grp['Zone']=='High Opportunity'].sort_values('impressions', ascending=False).head(3)
+                for _, row in top3_opp.iterrows():
+                    fig_mat.add_annotation(x=row['position'], y=row['impressions'], text=row['Query'], showarrow=True, arrowhead=1, arrowsize=0.5, arrowcolor="#64748b", font=dict(size=10))
+
+                fig_mat.update_xaxes(autorange="reversed", showgrid=True, gridcolor="#f1f5f9", gridwidth=0.5, zeroline=False)
+                fig_mat.update_yaxes(showgrid=True, gridcolor="#f1f5f9", gridwidth=0.5, zeroline=False)
+                fig_mat.update_traces(marker=dict(line=dict(width=1, color='white'), opacity=0.8))
+                fig_mat.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(family="Inter, sans-serif", color="#000000"),
+                                    legend=dict(orientation="h", y=-0.2, x=0.5, xanchor='center'))
+                st.plotly_chart(fig_mat, use_container_width=True)
         else:
             st.info("No keyword query data available.")
 
@@ -639,18 +666,42 @@ with tabs[4]:
         
         with col_chart1:
             if 'Lead Owner' in opps.columns and 'Status' in opps.columns:
-                owner_status = opps.groupby(['Lead Owner', 'Status']).size().reset_index(name='Count')
-                fig_o = px.bar(owner_status, x='Count', y='Lead Owner', color='Status', orientation='h', 
-                               color_discrete_map=p_colors, barmode='stack', title="Opporturnity owners by status")
-                st.plotly_chart(apply_chart_style(fig_o), use_container_width=True)
+                owner_counts = opps.groupby('Lead Owner').size().reset_index(name='Total').sort_values('Total', ascending=False)
+                top_15 = owner_counts.head(15)['Lead Owner'].tolist()
+                
+                df_owner = opps.copy()
+                df_owner['Owner Display'] = df_owner['Lead Owner'].apply(lambda x: "".join([n[0] for n in str(x).split()]) if str(x) != 'nan' else 'U')
+                df_owner['Owner Label'] = df_owner['Lead Owner'] + " (" + df_owner['Owner Display'] + ")"
+                
+                owner_status = df_owner.groupby(['Owner Label', 'Status']).size().reset_index(name='Count')
+                
+                fig_o = px.bar(owner_status, x='Count', y='Owner Label', color='Status', orientation='h', 
+                               color_discrete_map=p_colors, barmode='stack')
+                
+                fig_o.update_layout(
+                    xaxis_type='log', # LOG SCALE to handle Unassigned
+                    height=450, showlegend=True,
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=20, r=20, t=20, b=20),
+                    font=dict(family="Inter, sans-serif")
+                )
+                fig_o.update_traces(marker_line_width=0, opacity=0.9)
+                st.plotly_chart(fig_o, use_container_width=True)
         
         with col_chart2:
             if 'Status' in opps.columns:
-                status_counts = opps['Status'].value_counts().reset_index()
-                fig_s = px.pie(status_counts, values='count', names='Status', hole=0.6, title="Donut chart by status",
+                status_counts = opps.groupby('Status').size().reset_index(name='Count').sort_values('Count', ascending=False)
+                total_status = status_counts['Count'].sum()
+                
+                fig_s = px.pie(status_counts, values='Count', names='Status', hole=0.6,
                                color='Status', color_discrete_map=p_colors)
-                fig_s.add_annotation(text=f"<b>{len(opps):,}</b><br>Total", showarrow=False, font_size=20)
-                st.plotly_chart(apply_chart_style(fig_s), use_container_width=True)
+                
+                fig_s.update_traces(textposition='outside', textinfo='percent+label', marker=dict(line=dict(color='white', width=2)))
+                # CENTER TEXT
+                fig_s.add_annotation(text=f"<b>{total_status:,}</b><br>Total", showarrow=False, font_size=20, font_family="Inter, sans-serif")
+                
+                fig_s.update_layout(height=450, showlegend=False, paper_bgcolor='rgba(0,0,0,0)', font=dict(family="Inter, sans-serif", color=text_color))
+                st.plotly_chart(fig_s, use_container_width=True)
         
         st.divider()
         
@@ -660,38 +711,96 @@ with tabs[4]:
             l2c_df = opps[opps['Pipeline'] == 'L2C - Education'].copy()
             if not l2c_df.empty:
                 funnel_data = []
-                # Ensure STAGE_ORDER includes 'Won' for the funnel
-                S_ORDER = ["New Lead", "Qualifier", "Pre Sales (1)", "Pre Sales (2)", "Appointment Booked", "Won"]
                 if 'Stage' in l2c_df.columns:
-                    for stage in S_ORDER[:-1]:
-                        count = len(l2c_df[(l2c_df['Stage'] == stage) & (l2c_df['Status'] == 'open')])
-                        funnel_data.append({'Stage': stage, 'Count': count})
-                    funnel_data.append({'Stage': 'Won', 'Count': len(l2c_df[l2c_df['Status'] == 'won'])})
+                    for stage in STAGE_ORDER[:-1]:
+                        stage_df = l2c_df[(l2c_df['Stage'] == stage) & (l2c_df['Status'] == 'open')]
+                        funnel_data.append({'Stage': stage, 'Count': len(stage_df)})
+                    won_df = l2c_df[l2c_df['Status'] == 'won']
+                    funnel_data.append({'Stage': 'Won', 'Count': len(won_df)})
                 
                 if funnel_data:
                     f_df = pd.DataFrame(funnel_data)
-                    fig_f = px.bar(f_df, x="Count", y="Stage", orientation='h', title="Intent Pipeline Funnel",
-                                   color="Count", color_continuous_scale="Viridis")
-                    st.plotly_chart(apply_chart_style(fig_f), use_container_width=True)
+                    f_df['Prev Count'] = f_df['Count'].shift(1)
+                    f_df['Conv Rate'] = (f_df['Count'] / f_df['Prev Count'] * 100).fillna(0)
+                    
+                    fig_f = go.Figure()
+                    fig_f.add_trace(go.Bar(
+                        y=f_df['Stage'], x=f_df['Count'], orientation='h',
+                        marker=dict(
+                            color=f_df['Count'],
+                            colorscale=[[0, '#cffafe'], [0.5, '#3b82f6'], [1, '#10b981']],
+                            line=dict(width=0)
+                        ),
+                        text=f_df['Count'], textposition='outside',
+                        hovertemplate='<b>%{y}</b><br>Count: %{x}<extra></extra>'
+                    ))
+                    
+                    for i in range(1, len(f_df)):
+                        rate = f_df.iloc[i]['Conv Rate']
+                        if rate > 0:
+                            fig_f.add_annotation(
+                                x=f_df.iloc[i]['Count'] / 2, y=i - 0.5,
+                                text=f"<b>{rate:.1f}%</b>", showarrow=False,
+                                font=dict(size=10, color="white"),
+                                bgcolor="#6366f1", borderpad=4, opacity=0.8
+                            )
+                    
+                    fig_f.update_layout(
+                        height=500, showlegend=False,
+                        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                        margin=dict(l=20, r=40, t=20, b=20),
+                        yaxis=dict(autorange="reversed", showgrid=False)
+                    )
+                    st.plotly_chart(fig_f, use_container_width=True)
 
         st.divider()
         
         # 4. Lead Source Analysis
         st.markdown("### **4. Lead Source Analysis**")
-        if 'Lead Source' in opps.columns:
-            ls_grp = opps.groupby(['Lead Source', 'Status']).size().reset_index(name='Count')
-            fig_ls = px.bar(ls_grp, x='Count', y='Lead Source', color='Status', orientation='h', 
-                             color_discrete_map=p_colors, title="Lead Source Breakdown")
-            st.plotly_chart(apply_chart_style(fig_ls), use_container_width=True)
+        if 'Lead Source' in opps.columns and 'Status' in opps.columns:
+            lead_counts = opps.groupby('Lead Source').size().reset_index(name='Total').sort_values('Total', ascending=False)
+            top_12 = lead_counts.head(12)['Lead Source'].tolist()
+            
+            df_lead = opps.copy()
+            df_lead['Lead Category'] = df_lead['Lead Source'].apply(lambda x: x if x in top_12 else 'Others')
+            lead_status = df_lead.groupby(['Lead Category', 'Status']).size().reset_index(name='Count')
+            
+            fig_l = px.bar(lead_status, x='Count', y='Lead Category', color='Status', orientation='h',
+                           color_discrete_map=p_colors, barmode='stack')
+            
+            fig_l.update_layout(
+                height=500, showlegend=True,
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=10, b=10),
+                font=dict(family="Inter, sans-serif"),
+                xaxis=dict(showgrid=True, gridcolor=border_color)
+            )
+            fig_l.update_traces(marker_line_width=0, opacity=0.9)
+            st.plotly_chart(fig_l, use_container_width=True)
 
         st.divider()
         # 5. Opportunity Pipeline Bubble Chart
         st.markdown("### **5. Opportunity Pipeline Bubble Chart**")
-        if 'Lead Owner' in opps.columns and 'Opportunity Value' in opps.columns:
-            bubble_df = opps.groupby('Lead Owner').agg({'Opportunity Value':'sum', 'created_date':'count'}).reset_index()
-            bubble_df.columns = ['Lead Owner', 'Value', 'Count']
-            fig_b = px.scatter(bubble_df, x="Count", y="Value", size="Value", color="Lead Owner", hover_name="Lead Owner", title="Owner Impact Matrix")
-            st.plotly_chart(apply_chart_style(fig_b), use_container_width=True)
+        if 'Status' in opps.columns and 'Stage Percentage' in opps.columns:
+            open_opps = opps[opps['Status'] == 'open'].copy()
+            if not open_opps.empty and 'Lead Source' in open_opps.columns:
+                bubble_data = open_opps.groupby('Lead Source').agg({'Opportunity Name': 'count', 'Opportunity Value': 'sum', 'Stage Percentage': 'mean'}).reset_index()
+                bubble_data.columns = ['Lead Source', 'Count', 'Value', 'Avg Stage %']
+                if not bubble_data.empty:
+                    fig_b = px.scatter(bubble_data, x='Avg Stage %', y='Value', size='Count', color='Lead Source', 
+                                     title="Lead Source Performance (Open Context)",
+                                     color_discrete_sequence=['#1e3a8a', '#10b981', '#3b82f6', '#94a3b8', '#6366f1'],
+                                     size_max=45)
+                    
+                    fig_b.update_layout(
+                        height=500, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(family="Inter, sans-serif", color=text_color),
+                        xaxis=dict(title="Stage Progress (%)", tickformat='.0f', gridcolor=border_color),
+                        yaxis=dict(title="Pipeline Value ($)", gridcolor=border_color)
+                    )
+                    fig_b.update_traces(marker=dict(line=dict(width=1, color='white'), opacity=0.8))
+                    st.plotly_chart(fig_b, use_container_width=True)
+                    st.caption("Visual hierarchy: Bubble size = Opp Count | Color = Source | X = Progress")
     else:
         st.info("No opportunity data found.")
 
@@ -740,26 +849,28 @@ with tabs[6]:
     w_appts = int(df_w['total_appointments'].sum()) if not df_w.empty else 0
     t_rev = float(df_t['total_value'].sum()) if not df_t.empty else 0
     
-    s1, s2, s3 = st.columns(3)
-    with s1: okr_scorecard("Today's Appointments", f"{t_appts}")
-    with s2: okr_scorecard("Weekly Appointments", f"{w_appts}", color="#10b981")
-    with s3: okr_scorecard("Today's Revenue Impact", f"${t_rev:,.0f}", color="#8b5cfc")
-
-    st.divider()
+    st.markdown(f"""
+    <div style='text-align: center; margin-bottom: 2rem;'>
+        <div style='display: inline-block; padding: 20px 40px; background: rgba(16,185,129,0.1); border: 1px solid #10b981; border-radius: 12px; box-shadow: 0 0 20px rgba(16,185,129,0.2);'>
+            <span style='color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em;'>Today's Total Workforce</span>
+            <h2 style='color: #10b981; margin: 10px 0 0; font-size: 2.5rem;'>{t_appts} Appointments</h2>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("#### **📅 Today's Capacity**")
         if not df_t.empty:
             fig_t = px.bar(df_t.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
-                           orientation='h', title="Appointments per Consultant (Today)", color="total_appointments", color_continuous_scale="Blues")
+                           orientation='h', title="Appointments per Consultant (Today)", color="total_appointments", color_continuous_scale="Blues", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
             st.plotly_chart(apply_chart_style(fig_t), use_container_width=True)
     
     with c2:
         st.markdown("#### **📆 Weekly Capacity**")
         if not df_w.empty:
             fig_w = px.bar(df_w.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
-                           orientation='h', title="Appointments per Consultant (Weekly)", color="total_appointments", color_continuous_scale="Greens")
+                           orientation='h', title="Appointments per Consultant (Weekly)", color="total_appointments", color_continuous_scale="Greens", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
             st.plotly_chart(apply_chart_style(fig_w), use_container_width=True)
 
     st.divider()
