@@ -69,10 +69,9 @@ class MetaAsyncClient:
         # Build fields list
         fields = (
             'campaign_name,campaign_id,reach,frequency,impressions,spend,cpm,clicks,ctr,cpc,'
-            'inline_link_clicks,inline_link_click_ctr,outbound_clicks,landing_page_views,'
+            'inline_link_clicks,inline_link_click_ctr,outbound_clicks,'
             'actions,action_values,cost_per_action_type,'
-            'video_thruplay_watched_actions,video_30_sec_watched_actions,video_p25_watched_actions,'
-            'video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions'
+            'video_thruplay_watched_actions,video_p50_watched_actions,video_p95_watched_actions'
         )
         
         params = {
@@ -136,17 +135,17 @@ class MetaAsyncClient:
 
             # Video Retention
             thruplays = sum(float(a['value']) for a in entry.get('video_thruplay_watched_actions', []))
-            v3s = sum(float(a['value']) for a in entry.get('video_30_sec_watched_actions', [])) # Using 30s as proxy if 3s not available or similar
-            # Use action_type based 3s if available
-            v3s_act = get_act('video_view') 
-            v3s_final = v3s_act if v3s_act > 0 else v3s
+            if thruplays == 0:
+                thruplays = get_act('video_thruplay') + get_act('video_view_15_sec') + get_act('video_played_to_completion')
+
+            v3s_final = get_act('video_view')
             
             v50 = sum(float(a['value']) for a in entry.get('video_p50_watched_actions', []))
             v95 = sum(float(a['value']) for a in entry.get('video_p95_watched_actions', []))
             
             # Outbound Clicks
             outbound = sum(float(a['value']) for a in entry.get('outbound_clicks', []))
-            lp_views = sum(float(a['value']) for a in entry.get('landing_page_views', []))
+            lp_views = get_act('landing_page_view')
             
             # Results logic
             lead_forms = get_act('lead')
