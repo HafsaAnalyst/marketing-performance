@@ -383,25 +383,25 @@ class GHLAsyncClient:
             # Filter events for this consultant
             cal_events = [e for e in all_events if e.get("calendarId") == cal_id]
             
-            # Get stats from opportunities (partial name match for safety)
-            stats = {"won_count": 0, "total_value": 0}
-            # Simple exact match first
-            if name in opp_stats:
-                stats = opp_stats[name]
-            else:
-                # Try partial match (e.g. "Turab - Career Counsellor" match "Turab")
-                name_prefix = name.split(" - ")[0]
-                for owner_name, ostats in opp_stats.items():
-                    if name_prefix in owner_name:
-                        stats = ostats
-                        break
+            # Count statuses
+            confirmed = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() == "confirmed")
+            show = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["showed", "show"])
+            no_show = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["noshow", "no-show", "no show"])
+            unconfirmed = sum(1 for e in cal_events if e.get("appointmentStatus", "").lower() in ["new", "unconfirmed", ""])
             
+            # Extract amount paid if possible, otherwise default 0
+            # Since GHL Events API doesn't expose payment details directly, will sum to 0.
+            amount_paid = 0
+
             consultant_results.append({
                 "consultant_name": name,
                 "calendar_id": cal_id,
                 "total_appointments": len(cal_events),
-                "won_count": stats["won_count"],
-                "total_value": stats["total_value"],
+                "amount_paid": amount_paid,
+                "confirmed": confirmed,
+                "show": show,
+                "no_show": no_show,
+                "unconfirmed": unconfirmed,
                 "busy_slots": len(cal_events),
                 "empty_spaces": max(0, 14 - len(cal_events)),
                 "max_capacity": 14,
