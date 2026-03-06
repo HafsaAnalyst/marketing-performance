@@ -352,41 +352,37 @@ if not opps.empty:
             
         if 'Stage' in opps.columns:
             opps['Stage Percentage'] = opps['Stage'].apply(get_stage_pct)
-import streamlit as st
-import streamlit as st
 
-# --- 1. SET PAGE CONFIG (MUST BE FIRST) ---
-# We use st.session_state to persist the user's choice, 
-# but we have to initialize it before we call set_page_config.
+# --- 1. INITIALIZE STATE & DEFINE VARIABLE FIRST ---
+# This ensures layout_mode ALWAYS exists before set_page_config sees it.
 if 'layout_mode' not in st.session_state:
     st.session_state.layout_mode = "wide"
 
+# --- 2. SET PAGE CONFIG (MUST BE AT THE TOP) ---
 st.set_page_config(
-    page_title="The Migration | Intelligence",
-    layout=st.session_state.layout_mode, # Uses the state variable
-    initial_sidebar_state="expanded"
+    page_title="The Migration",
+    layout=st.session_state.layout_mode  # Now this variable is safe to use
 )
 
-# --- 2. SIDEBAR SETTINGS ---
+# --- 3. SIDEBAR TOGGLE LOGIC ---
 with st.sidebar:
-    st.title("The Migration")
-    st.write("---")
-    st.subheader("Layout Settings")
-    
-    # We use a checkbox or toggle. 
-    # value=True if centered, False if wide.
-    is_narrow = st.toggle(
-        "Narrow View", 
-        value=(st.session_state.layout_mode == "centered"),
-        help="Switch between Full Width and Centered view."
-    )
+    st.subheader("Appearance")
+    # Existing Dark/Light code here...
 
-    # Logic to update the state and trigger a rerun to apply the layout
+    st.write("---")
+    # The toggle to switch between Narrow (centered) and Wide
+    is_narrow = st.toggle("Narrow View", value=(st.session_state.layout_mode == "centered"))
+
+    # Determine what the mode SHOULD be based on the toggle
     new_mode = "centered" if is_narrow else "wide"
-    
+
+    # If the user changed the toggle, update state and RERUN to apply to Step 2
     if new_mode != st.session_state.layout_mode:
         st.session_state.layout_mode = new_mode
-        st.rerun() # Necessary to refresh the page with the new layout config
+        st.rerun()
+
+# --- 4. YOUR DASHBOARD CONTENT ---
+st.title("Marketing Performance Intelligence")
 
 # --- 3. YOUR DASHBOARD CONTENT ---
 st.header("Marketing Performance Intelligence")
@@ -1146,6 +1142,7 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
 
 
 
