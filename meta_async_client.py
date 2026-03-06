@@ -83,8 +83,8 @@ class MetaAsyncClient:
             'fields': fields,
             'limit': 500
         }
-        # Looser filter to ensure we get data
-        params['filtering'] = json.dumps([{'field': 'campaign.effective_status', 'operator': 'IN', 'value': ['ACTIVE', 'PAUSED', 'ARCHIVED', 'DELETED', 'IN_PROCESS', 'WITH_ISSUES']}])
+        # Exact filter as mkdashboarddf.py
+        params['filtering'] = json.dumps([{'field': 'campaign.effective_status', 'operator': 'IN', 'value': ['ACTIVE', 'PAUSED']}])
 
 
         if breakdown == 'country':
@@ -92,6 +92,7 @@ class MetaAsyncClient:
         
         all_data = []
         after_cursor = None
+        page_count = 0
         
         while True:
             query_params = params.copy()
@@ -194,7 +195,6 @@ class MetaAsyncClient:
         session = await self.get_session()
         url = f"{BASE_URL}/{AD_ACCOUNT_ID}/insights"
         fields = 'date_start,results,impressions,spend,actions'
-        
         params = {
             'access_token': ACCESS_TOKEN,
             'level': 'account',
@@ -202,7 +202,8 @@ class MetaAsyncClient:
             'time_increment': 1,
             'breakdowns': 'country',
             'fields': fields,
-            'limit': 500
+            'limit': 500,
+            'filtering': json.dumps([{'field': 'campaign.effective_status', 'operator': 'IN', 'value': ['ACTIVE', 'PAUSED']}])
         }
         
         all_data = []
@@ -228,9 +229,15 @@ class MetaAsyncClient:
             
         processed = []
         for entry in all_data:
-            results = sum(float(a['value']) for a in entry.get('actions', [])) # Fallback if results field doesn't work well
-            if 'results' in entry:
+            results = sum(float(a.get('value', 0)) for a in entry.get('actions', []))
+            
+            # If the API gave us a list of results, don't try to float() the list
+            if 'results' in entry and isinstance(entry['results'], list):
+                # Optionally you could parse the list, but 'actions' fallback is safer
+                pass
+            elif 'results' in entry and isinstance(entry['results'], (str, int, float)):
                 results = float(entry['results'])
+                
             processed.append({
                 'Date': entry.get('date_start'),
                 'Results': results,
