@@ -100,30 +100,30 @@ class MetaAsyncClient:
             
             try:
                 async with session.get(url, params=query_params) as response:
+                    text = await response.text()
                     if response.status != 200:
-                        text = await response.text()
-                        print(f"Error {response.status}: {text}")
+                        print(f"[META ERROR] {response.status}: {text}")
+                        # If breakdown failed, we still want to finish with what we have
                         break
                     
-                    data = await response.json()
+                    data = json.loads(text)
                     campaigns = data.get('data', [])
                     
                     if not campaigns:
+                        if page_count == 0:
+                            print(f"[META] No campaigns found for this range/breakdown.")
                         break
                     
                     all_data.extend(campaigns)
-                    print(f"DEBUG: Fetched {len(campaigns)} Meta records (Total so far: {len(all_data)})")
+                    page_count += 1
+                    print(f"DEBUG: Fetched {len(campaigns)} Meta records (Total: {len(all_data)})")
                     
-                    # Check for pagination
-                    paging = data.get('paging', {})
-                    cursors = paging.get('cursors', {})
-                    after_cursor = cursors.get('after')
-                    
+                    # Next page
+                    after_cursor = data.get('paging', {}).get('cursors', {}).get('after')
                     if not after_cursor:
                         break
-                        
             except Exception as e:
-                print(f"Error fetching campaigns: {e}")
+                print(f"[META EXCEPTION] {e}")
                 break
         
         # Process the data
