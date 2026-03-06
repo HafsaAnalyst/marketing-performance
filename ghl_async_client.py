@@ -329,16 +329,13 @@ class GHLAsyncClient:
                     query_params["startAfter"] = start_after
                 
                 try:
-                        data = await response.json()
-                        events = data.get("events", [])
-                        
+                    async with session.get(url, params=query_params) as response:
                         if response.status != 200:
                             print(f"[GHL ERROR] Failed fetch for {name}: {response.status} - {await response.text()}")
                             break
-                        
-                        if not events and page_count == 0:
-                            # print(f"[GHL] No events found for {name} ({start_date} to {end_date})") # Too noisy
-                            pass
+                            
+                        data = await response.json()
+                        events = data.get("events", [])
                         
                         if not events:
                             break
