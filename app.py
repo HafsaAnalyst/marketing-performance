@@ -25,7 +25,7 @@ import pytz
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="The Migration | Marketing Intelligence",
+    page_title="The Migration | Marketing Performance Dashboard",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -47,7 +47,7 @@ def login_gate():
             auth_pass = "1900clients"
             
         st.markdown("<div style='text-align: center; padding-top: 100px;'>", unsafe_allow_html=True)
-        st.title("🔐 Marketing Intelligence Login")
+        st.title("🔐 Marketing Performance Login")
         user = st.text_input("Username")
         pw = st.text_input("Password", type="password")
         if st.button("Login"):
@@ -64,7 +64,7 @@ login_gate()
 # --- THEME MANAGEMENT ---
 if "theme_choice" not in st.session_state:
     st.session_state.theme_choice = "Dark"
-    
+
 with st.sidebar:
     st.markdown("""
         <div style="padding: 0.5rem 0 1.5rem; border-bottom: 1px solid #2d2f31; margin-bottom: 1.5rem;">
@@ -264,7 +264,7 @@ def load_all_intelligence(start_date, end_date):
 
 # --- MAIN LOAD ---
 if len(date_range) == 2:
-    with st.spinner("Synchronizing Global Marketing Intelligence..."):
+    with st.spinner("Synchronizing Global Marketing Performance..."):
         all_data = load_all_intelligence(date_range[0], date_range[1])
 else:
     st.warning("Please select a valid date range.")
@@ -276,7 +276,7 @@ if not all_data:
 # --- CONTENT RENDERING ---
 st.markdown("""
     <div class="brand-header">
-        <h1>Marketing Performance Intelligence</h1>
+        <h1>Marketing Performance Dashboard</h1>
     </div>
 """, unsafe_allow_html=True)
 
@@ -352,40 +352,6 @@ if not opps.empty:
             
         if 'Stage' in opps.columns:
             opps['Stage Percentage'] = opps['Stage'].apply(get_stage_pct)
-
-# --- 1. INITIALIZE STATE & DEFINE VARIABLE FIRST ---
-# This ensures layout_mode ALWAYS exists before set_page_config sees it.
-if 'layout_mode' not in st.session_state:
-    st.session_state.layout_mode = "wide"
-
-# --- 2. SET PAGE CONFIG (MUST BE AT THE TOP) ---
-st.set_page_config(
-    page_title="The Migration",
-    layout=st.session_state.layout_mode  # Now this variable is safe to use
-)
-
-# --- 3. SIDEBAR TOGGLE LOGIC ---
-with st.sidebar:
-    st.subheader("Appearance")
-    # Existing Dark/Light code here...
-
-    st.write("---")
-    # The toggle to switch between Narrow (centered) and Wide
-    is_narrow = st.toggle("Narrow View", value=(st.session_state.layout_mode == "centered"))
-
-    # Determine what the mode SHOULD be based on the toggle
-    new_mode = "centered" if is_narrow else "wide"
-
-    # If the user changed the toggle, update state and RERUN to apply to Step 2
-    if new_mode != st.session_state.layout_mode:
-        st.session_state.layout_mode = new_mode
-        st.rerun()
-
-# --- 4. YOUR DASHBOARD CONTENT ---
-st.title("Marketing Performance Intelligence")
-
-# --- 3. YOUR DASHBOARD CONTENT ---
-st.header("Marketing Performance Intelligence")
 
 # --- TAB 0: OUR VISION ---
 with tabs[0]:
@@ -1033,10 +999,7 @@ with tabs[4]:
 
     else:
         st.info("No opportunity data found.")
-# Sidebar toggle for width
-width_option = st.sidebar.radio("View Mode", ["Narrow", "Wide"])
 
-st.set_page_config(layout=layout_mode)
 # --- TAB 5: ATTRIBUTION ANALYSIS ---
 with tabs[5]:
     if not contacts.empty:
@@ -1142,8 +1105,3 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
-
-
-
-
-
