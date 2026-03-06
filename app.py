@@ -638,22 +638,34 @@ with tabs[2]:
             p1, p2 = st.columns(2) if not ga4_comparison_mode else (st.container(), st.container())
             with p1:
                 st.markdown(f"#### {title_prefix} Top Page Titles")
-                if "page_titles" in ga4:
-                    df_t = pd.DataFrame(ga4["page_titles"])
-                    if countries_to_show:
-                        df_t = df_t[df_t['country'].isin(countries_to_show)] if 'country' in df_t.columns else df_t
-                    if not df_t.empty and 'Page Title' in df_t.columns:
+                if "titles" in ga4 and ga4["titles"]:
+                    df_t = pd.DataFrame(ga4["titles"])
+                    if countries_to_show and 'country' in df_t.columns:
+                        df_t_f = df_t[df_t['country'].isin(countries_to_show)]
+                        # Fallback to all data if filtered result is empty
+                        df_t = df_t_f if not df_t_f.empty else df_t
+                    if 'Page Title' in df_t.columns:
                         df_t_disp = df_t.groupby('Page Title')['Views'].sum().reset_index().sort_values('Views', ascending=False).head(15)
                         st.dataframe(style_df(df_t_disp), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No page title data available.")
+                else:
+                    st.info("No page title data available.")
             with p2:
                 st.markdown(f"#### {title_prefix} Top Page Paths")
-                if "page_paths" in ga4:
-                    df_p = pd.DataFrame(ga4["page_paths"])
-                    if countries_to_show:
-                        df_p = df_p[df_p['country'].isin(countries_to_show)] if 'country' in df_p.columns else df_p
-                    if not df_p.empty and 'Page Path' in df_p.columns:
+                if "paths" in ga4 and ga4["paths"]:
+                    df_p = pd.DataFrame(ga4["paths"])
+                    if countries_to_show and 'country' in df_p.columns:
+                        df_p_f = df_p[df_p['country'].isin(countries_to_show)]
+                        # Fallback to all data if filtered result is empty
+                        df_p = df_p_f if not df_p_f.empty else df_p
+                    if 'Page Path' in df_p.columns:
                         df_p_disp = df_p.groupby('Page Path')['Views'].sum().reset_index().sort_values('Views', ascending=False).head(15)
                         st.dataframe(style_df(df_p_disp), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No page path data available.")
+                else:
+                    st.info("No page path data available.")
 
         if ga4_comparison_mode and len(sel_ga_countries) == 2:
             c1, c2 = sel_ga_countries[0], sel_ga_countries[1]
