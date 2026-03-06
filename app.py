@@ -353,25 +353,44 @@ if not opps.empty:
         if 'Stage' in opps.columns:
             opps['Stage Percentage'] = opps['Stage'].apply(get_stage_pct)
 import streamlit as st
+import streamlit as st
 
-# 1. Set Wide mode as the DEFAULT
+# --- 1. SET PAGE CONFIG (MUST BE FIRST) ---
+# We use st.session_state to persist the user's choice, 
+# but we have to initialize it before we call set_page_config.
 if 'layout_mode' not in st.session_state:
     st.session_state.layout_mode = "wide"
 
-# 2. Add the toggle in your sidebar
+st.set_page_config(
+    page_title="The Migration | Intelligence",
+    layout=st.session_state.layout_mode, # Uses the state variable
+    initial_sidebar_state="expanded"
+)
+
+# --- 2. SIDEBAR SETTINGS ---
 with st.sidebar:
+    st.title("The Migration")
     st.write("---")
     st.subheader("Layout Settings")
-    view_choice = st.toggle("Narrow View", value=(st.session_state.layout_mode == "centered"))
     
-    # Update state based on toggle
-    if view_choice:
-        st.session_state.layout_mode = "centered"
-    else:
-        st.session_state.layout_mode = "wide"
+    # We use a checkbox or toggle. 
+    # value=True if centered, False if wide.
+    is_narrow = st.toggle(
+        "Narrow View", 
+        value=(st.session_state.layout_mode == "centered"),
+        help="Switch between Full Width and Centered view."
+    )
 
-# 3. Apply the layout (Must be the first Streamlit command that renders)
-st.set_page_config(layout=st.session_state.layout_state)
+    # Logic to update the state and trigger a rerun to apply the layout
+    new_mode = "centered" if is_narrow else "wide"
+    
+    if new_mode != st.session_state.layout_mode:
+        st.session_state.layout_mode = new_mode
+        st.rerun() # Necessary to refresh the page with the new layout config
+
+# --- 3. YOUR DASHBOARD CONTENT ---
+st.header("Marketing Performance Intelligence")
+
 # --- TAB 0: OUR VISION ---
 with tabs[0]:
     st.subheader("Strategic Alignment")
@@ -1127,6 +1146,7 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
 
 
 
