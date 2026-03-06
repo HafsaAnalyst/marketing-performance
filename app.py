@@ -999,7 +999,16 @@ with tabs[4]:
 
     else:
         st.info("No opportunity data found.")
+# Sidebar toggle for width
+width_option = st.sidebar.radio("View Mode", ["Narrow", "Wide"])
 
+# Set layout based on selection
+if width_option == "Wide":
+    layout_mode = "wide"
+else:
+    layout_mode = "centered"
+
+st.set_page_config(layout=layout_mode)
 # --- TAB 5: ATTRIBUTION ANALYSIS ---
 with tabs[5]:
     if not contacts.empty:
@@ -1105,3 +1114,4 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
