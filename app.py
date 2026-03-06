@@ -302,6 +302,7 @@ if not contacts.empty and 'contact_created' in contacts.columns:
 
 consultant_today = ghl.get('consultants_today', [])
 consultant_weekly = ghl.get('consultants_weekly', [])
+consultant_range = ghl.get('consultants_range', [])
 
 # Map GHL columns
 if not opps.empty:
@@ -1037,22 +1038,22 @@ with tabs[5]:
 with tabs[6]:
     st.markdown("### **👨‍🏫 Consultant Pulse Leaderboard**")
     
-    # Scorecards
+    # KPI Summary for Capacities
     df_t = pd.DataFrame(consultant_today)
-    df_w = pd.DataFrame(consultant_weekly)
+    df_r = pd.DataFrame(consultant_range)
     
     t_appts = int(df_t['total_appointments'].sum()) if not df_t.empty else 0
-    w_appts = int(df_w['total_appointments'].sum()) if not df_w.empty else 0
+    r_appts = int(df_r['total_appointments'].sum()) if not df_r.empty else 0
     
     st.markdown(f"""
     <div style='display: flex; justify-content: center; gap: 20px; margin-bottom: 2rem;'>
         <div style='padding: 20px 40px; background: rgba(16,185,129,0.1); border: 1px solid #10b981; border-radius: 12px; box-shadow: 0 0 20px rgba(16,185,129,0.2); text-align: center;'>
-            <span style='color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em;'>Today's Total Workforce</span>
-            <h2 style='color: #10b981; margin: 10px 0 0; font-size: 2.2rem;'>{t_appts} Appointments</h2>
+            <span style='color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em;'>Today's Workforce</span>
+            <h2 style='color: #10b981; margin: 10px 0 0; font-size: 2.2rem;'>{t_appts} Appts</h2>
         </div>
         <div style='padding: 20px 40px; background: rgba(139,92,252,0.1); border: 1px solid #8b5cfc; border-radius: 12px; box-shadow: 0 0 20px rgba(139,92,252,0.2); text-align: center;'>
-            <span style='color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em;'>Weekly Total Workforce</span>
-            <h2 style='color: #8b5cfc; margin: 10px 0 0; font-size: 2.2rem;'>{w_appts} Appointments</h2>
+            <span style='color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em;'>Selected Range Workforce</span>
+            <h2 style='color: #8b5cfc; margin: 10px 0 0; font-size: 2.2rem;'>{r_appts} Appts</h2>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1073,26 +1074,19 @@ with tabs[6]:
         st.info("No appointment data for today.")
     
     st.divider()
-
-    # --- WEEKLY SECTION ---
-    st.markdown("### **📆 Weekly Consultant Capacity (Last 7 Rolling Days)**")
     
-    # User requested print statements for tracking this window
-    print(f"\n[CONSULTANT TRACKER] Weekly Window: Rolling 7 Days")
-    print(f"--- Data Points: {len(df_w)}")
-    if not df_w.empty:
-        top_c = df_w.sort_values('total_appointments', ascending=False).iloc[0]['consultant_name']
-        print(f"--- Peak Performance: {top_c} ({df_w.sort_values('total_appointments', ascending=False).iloc[0]['total_appointments']} appts)")
-
-    if not df_w.empty:
-        fig_w = px.bar(df_w.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
-                        orientation='h', title="Appointments per Consultant (Weekly Rolling 7D)", color="total_appointments", color_continuous_scale="Greens", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
-        st.plotly_chart(apply_chart_style(fig_w), use_container_width=True)
+    # --- RANGE SECTION ---
+    st.markdown(f"### **📅 Range Capacity ({date_range[0]} to {date_range[1]})**")
+    df_r = pd.DataFrame(consultant_range)
+    if not df_r.empty:
+        fig_r = px.bar(df_r.sort_values('total_appointments'), x="total_appointments", y="consultant_name", 
+                        orientation='h', title=f"Appointments per Consultant ({date_range[0]} to {date_range[1]})", color="total_appointments", color_continuous_scale="Viridis", labels={'consultant_name': 'Consultant', 'total_appointments': 'Appointments'})
+        st.plotly_chart(apply_chart_style(fig_r), use_container_width=True)
         
-        st.markdown("#### **Weekly Leaderboard (Rolling 7D)**")
-        cols_w = ['consultant_name', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed', 'country']
-        available_cols_w = [c for c in cols_w if c in df_w.columns]
-        df_w_disp = df_w[available_cols_w].sort_values('total_appointments', ascending=False)
-        st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
+        st.markdown(f"#### **Range Leaderboard ({date_range[0]} to {date_range[1]})**")
+        cols_r = ['consultant_name', 'total_appointments', 'amount_paid', 'confirmed', 'show', 'no_show', 'unconfirmed', 'country']
+        available_cols_r = [c for c in cols_r if c in df_r.columns]
+        df_r_disp = df_r[available_cols_r].sort_values('total_appointments', ascending=False)
+        st.dataframe(style_df(df_r_disp), use_container_width=True, hide_index=True)
     else:
-        st.info("No appointment data for this week.")
+        st.info("No appointment data for the selected range.")
