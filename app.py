@@ -186,6 +186,11 @@ def load_all_intelligence(start_date, end_date):
     asyncio.set_event_loop(loop)
     
     async def fetch_everything():
+        # Reset specific global client sessions so they attach to this new event loop
+        ghl_client._session = None
+        from meta_async_client import meta_client
+        meta_client._session = None
+        
         # Fetching tasks
         tasks = [
             ghl_client.fetch_all_data(start_str, end_str),
@@ -244,6 +249,17 @@ def load_all_intelligence(start_date, end_date):
             st.code(error_details)
         return None
     finally:
+        async def cleanup():
+            if getattr(ghl_client, '_session', None) and not ghl_client._session.closed:
+                await ghl_client._session.close()
+            from meta_async_client import meta_client
+            if getattr(meta_client, '_session', None) and not meta_client._session.closed:
+                await meta_client._session.close()
+                
+        try:
+            loop.run_until_complete(cleanup())
+        except Exception:
+            pass
         loop.close()
 
 # --- MAIN LOAD ---
