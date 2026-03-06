@@ -163,39 +163,44 @@ class GA4AsyncClient:
         return data
     
     async def fetch_page_titles(self, start_date: str, end_date: str) -> List[Dict]:
-        """Fetch top page titles"""
+        """Fetch top page titles with country dimension for filtering"""
         client = self.get_client()
         request = RunReportRequest(
             property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="pageTitle")],
+            dimensions=[Dimension(name="pageTitle"), Dimension(name="country")],
             metrics=[Metric(name="screenPageViews"), Metric(name="activeUsers")],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+            limit=500
         )
         response = client.run_report(request)
         data = []
         for row in response.rows:
             data.append({
                 'Page Title': row.dimension_values[0].value,
+                'country': row.dimension_values[1].value,
                 'Views': int(row.metric_values[0].value),
                 'Users': int(row.metric_values[1].value)
             })
         return data
 
     async def fetch_page_paths(self, start_date: str, end_date: str) -> List[Dict]:
-        """Fetch top page paths"""
+        """Fetch top page paths with country dimension for filtering"""
         client = self.get_client()
         request = RunReportRequest(
             property=f"properties/{PROPERTY_ID}",
-            dimensions=[Dimension(name="pagePath")],
-            metrics=[Metric(name="screenPageViews")],
+            dimensions=[Dimension(name="pagePath"), Dimension(name="country")],
+            metrics=[Metric(name="screenPageViews"), Metric(name="activeUsers")],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+            limit=500
         )
         response = client.run_report(request)
         data = []
         for row in response.rows:
             data.append({
                 'Page Path': row.dimension_values[0].value,
-                'Views': int(row.metric_values[0].value)
+                'country': row.dimension_values[1].value,
+                'Views': int(row.metric_values[0].value),
+                'Users': int(row.metric_values[1].value)
             })
         return data
     
