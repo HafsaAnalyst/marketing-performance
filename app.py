@@ -64,7 +64,27 @@ login_gate()
 # --- THEME MANAGEMENT ---
 if "theme_choice" not in st.session_state:
     st.session_state.theme_choice = "Dark"
+import streamlit as st
 
+# 1. Set Wide mode as the DEFAULT
+if 'layout_mode' not in st.session_state:
+    st.session_state.layout_mode = "wide"
+
+# 2. Add the toggle in your sidebar
+with st.sidebar:
+    st.write("---")
+    st.subheader("Layout Settings")
+    view_choice = st.toggle("Narrow View", value=(st.session_state.layout_mode == "centered"))
+    
+    # Update state based on toggle
+    if view_choice:
+        st.session_state.layout_mode = "centered"
+    else:
+        st.session_state.layout_mode = "wide"
+
+# 3. Apply the layout (Must be the first Streamlit command that renders)
+st.set_page_config(layout=st.session_state.layout_state)
+    
 with st.sidebar:
     st.markdown("""
         <div style="padding: 0.5rem 0 1.5rem; border-bottom: 1px solid #2d2f31; margin-bottom: 1.5rem;">
@@ -1002,12 +1022,6 @@ with tabs[4]:
 # Sidebar toggle for width
 width_option = st.sidebar.radio("View Mode", ["Narrow", "Wide"])
 
-# Set layout based on selection
-if width_option == "Wide":
-    layout_mode = "wide"
-else:
-    layout_mode = "centered"
-
 st.set_page_config(layout=layout_mode)
 # --- TAB 5: ATTRIBUTION ANALYSIS ---
 with tabs[5]:
@@ -1114,4 +1128,5 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
 
