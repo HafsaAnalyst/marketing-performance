@@ -593,18 +593,8 @@ class GHLAsyncClient:
         # Merge opportunities so we have names/values for metrics
         merged_opps = merge_opportunity_data(opportunities_raw, pipelines, users, contacts_raw)
         
-        # Range appointments for the original requested range
-        start_dt_obj = datetime.strptime(start_date, '%Y-%m-%d')
-        end_dt_obj = datetime.strptime(end_date, '%Y-%m-%d')
-        days_diff = (end_dt_obj - start_dt_obj).days + 1
-        
-        print(f"[GHL] Fetching range capacity for {start_date} to {end_date} ({days_diff} days)...")
-        range_res = await self.fetch_consultant_metrics(
-            start_date=start_date, end_date=end_date,
-            opportunities=merged_opps, contacts=contacts_raw, payments=payments,
-            working_days=max(1, days_diff)
-        )
-        for dr in range_res: dr['Type'] = 'Range'
+        # Now fetch consultant pulse (Today/Weekly)
+        consultant_pulse = await self.fetch_consultant_pulse(opportunities=merged_opps, contacts=contacts_raw, payments=payments)
         
         # appointments for the original range
         appointments = await self.fetch_all_appointments(start_date, end_date)
@@ -617,15 +607,13 @@ class GHLAsyncClient:
             "users": users,
             "consultants_today": consultant_pulse["today"],
             "consultants_weekly": consultant_pulse["weekly"],
-            "consultants_range": range_res,
             "fetched_at": datetime.now().isoformat(),
             "counts": {
                 "contacts": len(contacts_raw),
                 "opportunities": len(merged_opps),
                 "appointments": len(appointments),
                 "consultants_today": len(consultant_pulse["today"]),
-                "consultants_weekly": len(consultant_pulse["weekly"]),
-                "consultants_range": len(range_res)
+                "consultants_weekly": len(consultant_pulse["weekly"])
             }
         }
     
