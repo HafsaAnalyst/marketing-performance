@@ -329,12 +329,17 @@ class GHLAsyncClient:
                     query_params["startAfter"] = start_after
                 
                 try:
-                    async with session.get(url, params=query_params) as response:
-                        if response.status != 200:
-                            break
-                        
                         data = await response.json()
                         events = data.get("events", [])
+                        
+                        if response.status != 200:
+                            print(f"[GHL ERROR] Failed fetch for {name}: {response.status} - {await response.text()}")
+                            break
+                        
+                        if not events and page_count == 0:
+                            # print(f"[GHL] No events found for {name} ({start_date} to {end_date})") # Too noisy
+                            pass
+                        
                         if not events:
                             break
                         
@@ -591,27 +596,39 @@ class GHLAsyncClient:
         # Merge opportunities so we have names/values for metrics
         merged_opps = merge_opportunity_data(opportunities_raw, pipelines, users, contacts_raw)
         
-        # Now fetch consultant pulse (Today/Weekly)
-        consultant_pulse = await self.fetch_consultant_pulse(opportunities=merged_opps, contacts=contacts_raw, payments=payments)
+        # Range appointments for the original requested range
+        start_dt_obj = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt_obj = datetime.strptime(end_date, '%Y-%m-%d')
+        days_diff = (end_dt_obj - start_dt_obj).days + 1
+        
+        print(f"[GHL] Fetching range capacity for {start_date} to {end_date} ({days_diff} days)...")
+        range_res = await self.fetch_consultant_metrics(
+            start_date=start_date, end_date=end_date,
+            opportunities=merged_opps, contacts=contacts_raw, payments=payments,
+            working_days=max(1, days_diff)
+        )
+        for dr in range_res: dr['Type'] = 'Range'
         
         # appointments for the original range
         appointments = await self.fetch_all_appointments(start_date, end_date)
         
         return {
             "contacts": contacts_raw,
-            "opportunities": merged_opps, # Return merged
+            "opportunities": merged_opps, 
             "appointments": appointments,
             "pipelines": pipelines,
             "users": users,
             "consultants_today": consultant_pulse["today"],
             "consultants_weekly": consultant_pulse["weekly"],
+            "consultants_range": range_res,
             "fetched_at": datetime.now().isoformat(),
             "counts": {
                 "contacts": len(contacts_raw),
                 "opportunities": len(merged_opps),
                 "appointments": len(appointments),
                 "consultants_today": len(consultant_pulse["today"]),
-                "consultants_weekly": len(consultant_pulse["weekly"])
+                "consultants_weekly": len(consultant_pulse["weekly"]),
+                "consultants_range": len(range_res)
             }
         }
     
