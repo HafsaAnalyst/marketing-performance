@@ -415,7 +415,7 @@ with tabs[1]:
 
             st.divider()
 
-            # 2. Creative Engagement
+             # 2. Creative Engagement
             st.markdown(f"### {title_prefix} **2. Creative Engagement (Hook & Hold)**")
             hook_rate = (df_f['3s Hold'].sum() / t_impr * 100) if t_impr > 0 and '3s Hold' in df_f.columns else 0
             hold_rate = (df_f['Thruplays'].sum() / t_impr * 100) if t_impr > 0 and 'Thruplays' in df_f.columns else 0
@@ -832,7 +832,7 @@ with tabs[4]:
         all_pipe_countries = sorted(opps['Country'].dropna().unique()) if 'Country' in opps.columns else []
         pc1, pc2 = st.columns([3, 1])
         with pc1:
-            sel_pipe_countries = st.multiselect("Filter Pipeline by Country", all_pipe_countries, default=all_pipe_countries[:3] if len(all_pipe_countries) > 3 else all_pipe_countries, key="pipe_country_filt") if all_pipe_countries else []
+            sel_pipe_countries = st.multiselect("Filter Pipeline by Country", all_pipe_countries, default=[], key="pipe_country_filt") if all_pipe_countries else []
         with pc2:
             pipe_comparison_mode = st.toggle("Side-by-Side Comparison", key="pipe_comp_toggle")
 
@@ -848,11 +848,17 @@ with tabs[4]:
             l2c_open_count = 0
             if 'Pipeline' in df_f.columns and 'Status' in df_f.columns:
                 l2c_open_count = len(df_f[(df_f['Pipeline'] == 'L2C - Education') & (df_f['Status'] == 'open')])
+            
+            l2c_count = 0
+            if 'Pipeline' in df_f.columns and 'Status' in df_f.columns:
+                l2c_count = len(df_f[(df_f['Pipeline'] == 'L2C - Education')])
 
-            k_cols = st.columns(3)
+            k_cols = st.columns(4)
             with k_cols[0]: okr_scorecard("Total Opportunities", f"{len(df_f):,}")
-            with k_cols[1]: okr_scorecard("Pipeline Value", f"${total_val:,.0f}", color="#10b981")
-            with k_cols[2]: okr_scorecard("L2C Education (Open)", f"{l2c_open_count:,}", color="#8b5cfc")
+            with k_cols[1]: okr_scorecard("Pipeline Value", f"${total_val:,.2f}", color="#10b981")
+            with k_cols[2]: okr_scorecard("L2C Education", f"{l2c_count:,}", color="#8b5cfc")
+            with k_cols[3]: okr_scorecard("L2C Education (Open)", f"{l2c_open_count:,}", color="#8b5cfc")
+            
             
             st.divider()
             
@@ -1117,3 +1123,4 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
