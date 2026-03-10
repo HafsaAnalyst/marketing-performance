@@ -434,7 +434,7 @@ with tabs[1]:
 
             st.divider()
 
-            # 4. Campaign Performance Analysis
+             # 4. Campaign Performance Analysis
             st.markdown(f"### {title_prefix} **4. Campaign Performance Analysis**")
             if 'Frequency' in df_f.columns:
                 df_fat = df_f.copy()
@@ -443,7 +443,6 @@ with tabs[1]:
                 if len(df_fat) > 1:
                     fig_fat = px.scatter(df_fat, x="Frequency", y="CTR (link click-through rate)", 
                                         size="Amount spent", color="Campaign", hover_name="Campaign",
-                                        trendline="ols", trendline_color_override="red",
                                         title=f"{title_prefix} CTR% vs. Frequency Fatigue")
                     st.plotly_chart(apply_chart_style(fig_fat), use_container_width=True)
                 else:
@@ -1123,4 +1122,5 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
 
