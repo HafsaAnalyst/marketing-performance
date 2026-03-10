@@ -415,7 +415,7 @@ with tabs[1]:
 
             st.divider()
 
-             # 2. Creative Engagement
+            # 2. Creative Engagement
             st.markdown(f"### {title_prefix} **2. Creative Engagement (Hook & Hold)**")
             hook_rate = (df_f['3s Hold'].sum() / t_impr * 100) if t_impr > 0 and '3s Hold' in df_f.columns else 0
             hold_rate = (df_f['Thruplays'].sum() / t_impr * 100) if t_impr > 0 and 'Thruplays' in df_f.columns else 0
@@ -1122,5 +1122,6 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
 
 
