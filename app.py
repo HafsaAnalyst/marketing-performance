@@ -415,13 +415,14 @@ with tabs[1]:
 
             st.divider()
 
+
             # 2. Creative Engagement
             st.markdown(f"### {title_prefix} **2. Creative Engagement (Hook & Hold)**")
             hook_rate = (df_f['3s Hold'].sum() / t_impr * 100) if t_impr > 0 and '3s Hold' in df_f.columns else 0
-            hold_rate = (df_f['Thruplays'].sum() / t_impr * 100) if t_impr > 0 and 'Thruplays' in df_f.columns else 0
+            hold_rate = (df_f['Thruplays'].sum() / df_f['3s Hold'].sum() * 100) if df_f['3s Hold'].sum() > 0 and 'Thruplays' in df_f.columns else 0
             vh1, vh2 = st.columns(2)
             with vh1: okr_scorecard("Hook Rate (3s/Impr)", f"{hook_rate:.1f}%")
-            with vh2: okr_scorecard("Hold Rate (Thru/Impr)", f"{hold_rate:.1f}%")
+            with vh2: okr_scorecard("Hold Rate (Thru/3s Hold)", f"{hold_rate:.1f}%")
 
             st.divider()
 
@@ -1122,6 +1123,7 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
+
 
 
 
