@@ -16,10 +16,10 @@ try:
     APP_SECRET = st.secrets["meta"]["app_secret"]
     AD_ACCOUNT_ID = st.secrets["meta"]["ad_account_id"]
 except:
-    ACCESS_TOKEN = None
-    APP_ID = None
-    APP_SECRET = None
-    AD_ACCOUNT_ID = None
+    ACCESS_TOKEN = "EAAWYAtm7TKsBQ4zb1LndIDLktPy7psadJZATb9Gc9X0R53xsE8PfqMxSAWQrd56dEZAvCPstNSoeS952V1jiZAYZBXmu5O6IZC1pyAPEuDZAOZBR6GiuVBZA6ihZA5NuBhZCR7ZBLcbPW8QBhVBP8EcUZAWosdKVhzCbg2Ib06R4NeHA3VXDupEmL7xKnVCjJKL6XMIxoGQg"
+    APP_ID = "1574512893840555"
+    APP_SECRET = "2f2984631ab5a1dd0606a8d09e45f100"
+    AD_ACCOUNT_ID = "act_600555439172695"
 
 BASE_URL = "https://graph.facebook.com/v18.0"
 
@@ -304,4 +304,5 @@ if __name__ == "__main__":
         print(f"Summary: {result['summary']}")
     
     asyncio.run(test())
+
 
