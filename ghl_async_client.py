@@ -15,8 +15,8 @@ try:
     GHL_API_KEY = st.secrets["ghl"]["api_key"]
     GHL_LOCATION_ID = st.secrets["ghl"]["location_id"]
 except:
-    GHL_API_KEY = "pit-0ca0568a-d707-46f3-a018-95a9c1a00c3f"
-    GHL_LOCATION_ID = "Cy61ZIoB1Q68krX0lSZA"
+    GHL_API_KEY = None
+    GHL_LOCATION_ID = None
 
 GHL_VERSION = "2021-07-28"
 BASE_URL = "https://services.leadconnectorhq.com"
@@ -817,3 +817,4 @@ async def test_async_client():
 
 if __name__ == "__main__":
     asyncio.run(test_async_client())
+
