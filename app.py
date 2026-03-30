@@ -550,11 +550,22 @@ with tabs[2]:
                 sel_ga_countries = st.multiselect("Filter GA4 by Country", all_ga_countries, default=all_ga_countries[:3] if all_ga_countries else [], key="ga4_c_filt")
             with f_ga2:
                 ga4_comparison_mode = st.toggle("Side-by-Side Comparison", key="ga4_comp_toggle")
+            
+            # City filter — enabled only when countries are selected
+            if sel_ga_countries and 'City' in df_daily_raw.columns:
+                cities_in_countries = sorted(df_daily_raw[df_daily_raw['Country'].isin(sel_ga_countries)]['City'].dropna().unique())
+                sel_ga_cities = st.multiselect("Filter GA4 by City", cities_in_countries, default=[], key="ga4_city_filt")
+            else:
+                sel_ga_cities = []
+                if not sel_ga_countries:
+                    st.caption("ℹ️ Select a country above to enable city filtering.")
 
-        def render_ga4_content(countries_to_show, title_prefix=""):
+        def render_ga4_content(countries_to_show, title_prefix="", cities_to_show=None):
             df_d = df_daily_raw.copy()
             if countries_to_show:
                 df_d = df_d[df_d['Country'].isin(countries_to_show)]
+            if cities_to_show and 'City' in df_d.columns:
+                df_d = df_d[df_d['City'].isin(cities_to_show)]
             
             # 1. Engagement Overview
             st.markdown(f"### {title_prefix} **1. Engagement Overview**")
@@ -597,6 +608,8 @@ with tabs[2]:
                 if not df_chan.empty:
                     if countries_to_show:
                         df_chan = df_chan[df_chan['country'].isin(countries_to_show)]
+                    if cities_to_show and 'city' in df_chan.columns:
+                        df_chan = df_chan[df_chan['city'].isin(cities_to_show)]
                     df_c_grp = df_chan.groupby('channel')['sessions'].sum().reset_index().sort_values('sessions', ascending=False)
                     fig_chan = px.bar(df_c_grp, x="sessions", y="channel", orientation='h', title=f"{title_prefix} Sessions by Channel", color="sessions")
                     st.plotly_chart(apply_chart_style(fig_chan), use_container_width=True)
@@ -667,14 +680,24 @@ with tabs[2]:
                 else:
                     st.info("No page path data available.")
 
-        if ga4_comparison_mode and len(sel_ga_countries) == 2:
-            c1, c2 = sel_ga_countries[0], sel_ga_countries[1]
-            st.markdown(f"## ⚔️ Comparison: {c1} vs {c2}")
-            comp_col1, comp_col2 = st.columns(2)
-            with comp_col1: render_ga4_content([c1], f"📊 {c1}")
-            with comp_col2: render_ga4_content([c2], f"📊 {c2}")
+        if ga4_comparison_mode:
+            if len(sel_ga_cities) == 2:
+                city1, city2 = sel_ga_cities[0], sel_ga_cities[1]
+                st.markdown(f"## ⚔️ Comparison: {city1} vs {city2}")
+                comp_col1, comp_col2 = st.columns(2)
+                with comp_col1: render_ga4_content(sel_ga_countries if sel_ga_countries else [], f"📊 {city1}", cities_to_show=[city1])
+                with comp_col2: render_ga4_content(sel_ga_countries if sel_ga_countries else [], f"📊 {city2}", cities_to_show=[city2])
+            elif len(sel_ga_countries) == 2:
+                c1, c2 = sel_ga_countries[0], sel_ga_countries[1]
+                st.markdown(f"## ⚔️ Comparison: {c1} vs {c2}")
+                comp_col1, comp_col2 = st.columns(2)
+                with comp_col1: render_ga4_content([c1], f"📊 {c1}", cities_to_show=sel_ga_cities)
+                with comp_col2: render_ga4_content([c2], f"📊 {c2}", cities_to_show=sel_ga_cities)
+            else:
+                st.warning("Please select exactly 2 countries or 2 cities for comparison.")
+                render_ga4_content(sel_ga_countries if sel_ga_countries else [], cities_to_show=sel_ga_cities)
         else:
-            render_ga4_content(sel_ga_countries if sel_ga_countries else [])
+            render_ga4_content(sel_ga_countries if sel_ga_countries else [], cities_to_show=sel_ga_cities)
     else:
         st.warning("⚠️ GA4 Sync limited: 403 Forbidden.")
         st.info("💡 **Resolution:** Add `ga4-monitor@ghldataset.iam.gserviceaccount.com` as a 'Viewer' in Google Analytics Admin -> Property Access Management.")
@@ -711,6 +734,8 @@ with tabs[3]:
                 sel_gsc_countries = st.multiselect("Filter SEO by Country", all_gsc_countries, default=all_gsc_countries[:3] if all_gsc_countries else [], key="gsc_c_filt")
             with f_gs2:
                 seo_comparison_mode = st.toggle("Side-by-Side Comparison", key="seo_comp_toggle")
+            if sel_gsc_countries:
+                st.caption("ℹ️ City-level filtering is not available for Search Console data (API limitation).")
 
         def render_seo_content(countries_to_show, title_prefix=""):
             df_t = df_trend_raw.copy()
@@ -835,8 +860,19 @@ with tabs[4]:
             sel_pipe_countries = st.multiselect("Filter Pipeline by Country", all_pipe_countries, default=[], key="pipe_country_filt") if all_pipe_countries else []
         with pc2:
             pipe_comparison_mode = st.toggle("Side-by-Side Comparison", key="pipe_comp_toggle")
+        
+        # City filter — enabled only when countries are selected
+        if sel_pipe_countries and 'City' in opps.columns:
+            pipe_cities = sorted(opps[opps['Country'].isin(sel_pipe_countries)]['City'].dropna().unique())
+            sel_pipe_cities = st.multiselect("Filter Pipeline by City", pipe_cities, default=[], key="pipe_city_filt")
+        else:
+            sel_pipe_cities = []
+            if not sel_pipe_countries:
+                st.caption("ℹ️ Select a country above to enable city filtering.")
 
         opps_filtered = opps[opps['Country'].isin(sel_pipe_countries)].copy() if sel_pipe_countries else opps.copy()
+        if sel_pipe_cities and 'City' in opps_filtered.columns:
+            opps_filtered = opps_filtered[opps_filtered['City'].isin(sel_pipe_cities)].copy()
 
         def render_pipeline_content(df_f, title_prefix=""):
             st.markdown(f"<small>Records: {len(df_f)} opportunities</small>", unsafe_allow_html=True)
@@ -1006,12 +1042,32 @@ with tabs[4]:
                         st.plotly_chart(fig_b, use_container_width=True)
                         st.caption("Visual hierarchy: Bubble size = Opp Count | Color = Source | X = Progress")
         
-        if pipe_comparison_mode and len(sel_pipe_countries) == 2:
-            pc1, pc2 = sel_pipe_countries[0], sel_pipe_countries[1]
-            st.markdown(f"## ⚔️ Comparison: {pc1} vs {pc2}")
-            p_comp_col1, p_comp_col2 = st.columns(2)
-            with p_comp_col1: render_pipeline_content(opps[opps['Country']==pc1], f"💼 {pc1}")
-            with p_comp_col2: render_pipeline_content(opps[opps['Country']==pc2], f"💼 {pc2}")
+        if pipe_comparison_mode:
+            if len(sel_pipe_cities) == 2:
+                city1, city2 = sel_pipe_cities[0], sel_pipe_cities[1]
+                st.markdown(f"## ⚔️ Comparison: {city1} vs {city2}")
+                p_comp_col1, p_comp_col2 = st.columns(2)
+                
+                opps_base = opps[opps['Country'].isin(sel_pipe_countries)] if sel_pipe_countries else opps.copy()
+                opps_c1 = opps_base[opps_base['City'] == city1] if 'City' in opps.columns else pd.DataFrame()
+                opps_c2 = opps_base[opps_base['City'] == city2] if 'City' in opps.columns else pd.DataFrame()
+                
+                with p_comp_col1: render_pipeline_content(opps_c1, f"💼 {city1}")
+                with p_comp_col2: render_pipeline_content(opps_c2, f"💼 {city2}")
+            elif len(sel_pipe_countries) == 2:
+                pc1, pc2 = sel_pipe_countries[0], sel_pipe_countries[1]
+                st.markdown(f"## ⚔️ Comparison: {pc1} vs {pc2}")
+                p_comp_col1, p_comp_col2 = st.columns(2)
+                opps_c1 = opps[opps['Country']==pc1]
+                opps_c2 = opps[opps['Country']==pc2]
+                if sel_pipe_cities and 'City' in opps.columns:
+                    opps_c1 = opps_c1[opps_c1['City'].isin(sel_pipe_cities)]
+                    opps_c2 = opps_c2[opps_c2['City'].isin(sel_pipe_cities)]
+                with p_comp_col1: render_pipeline_content(opps_c1, f"💼 {pc1}")
+                with p_comp_col2: render_pipeline_content(opps_c2, f"💼 {pc2}")
+            else:
+                st.warning("Please select exactly 2 countries or 2 cities for comparison.")
+                render_pipeline_content(opps_filtered)
         else:
             render_pipeline_content(opps_filtered)
 
@@ -1024,13 +1080,25 @@ with tabs[5]:
         # Define geo filter function helper
         def apply_contact_geo_filter(df_to_filt):
             c_geo_col1, c_geo_col2 = st.columns([3, 1])
+            selected_geo = []
             with c_geo_col1:
-                # Removed City filter for consistency with GA4/GSC requirements
                 if 'country' in df_to_filt.columns:
                     geo_options = [str(x) for x in df_to_filt['country'].dropna().unique() if str(x).strip()]
-                    selected_geo = st.multiselect("Filter Attribution by Country", ["All"] + sorted(geo_options), default="All", key="c_country_val")
-                    if "All" not in selected_geo and selected_geo:
-                        return df_to_filt[df_to_filt['country'].isin(selected_geo)]
+                    selected_geo_raw = st.multiselect("Filter Attribution by Country", ["All"] + sorted(geo_options), default="All", key="c_country_val")
+                    if "All" not in selected_geo_raw and selected_geo_raw:
+                        selected_geo = selected_geo_raw
+                        df_to_filt = df_to_filt[df_to_filt['country'].isin(selected_geo)]
+            
+            with c_geo_col2:
+                # City filter — enabled only when countries are selected
+                if selected_geo and 'city' in df_to_filt.columns:
+                    city_options = sorted([str(x) for x in df_to_filt['city'].dropna().unique() if str(x).strip()])
+                    if city_options:
+                        selected_cities = st.multiselect("Filter Attribution by City", city_options, default=[], key="c_city_val")
+                        if selected_cities:
+                            df_to_filt = df_to_filt[df_to_filt['city'].isin(selected_cities)]
+                elif not selected_geo:
+                    st.caption("ℹ️ Select a country above to enable city filtering.")
             return df_to_filt
 
         contacts_filtered = apply_contact_geo_filter(contacts)
@@ -1123,7 +1191,6 @@ with tabs[6]:
         st.dataframe(style_df(df_w_disp), use_container_width=True, hide_index=True)
     else:
         st.info("No appointment data for this week.")
-
 
 
 
